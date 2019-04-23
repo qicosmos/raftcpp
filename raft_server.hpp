@@ -18,12 +18,12 @@ namespace raftcpp{
 /*
 	problems need to be solved: 
 	1.should use atomic to make sure thread safe;
-	2.how to deal with network error
 */
 class raft_server {
 public:
 	raft_server(const config& conf, size_t thrd_num = 2) : rpc_server_(conf.host_addr.port, thrd_num),
 		conf_(conf), state_(State::FOLLOWER){
+		me_.peer_id = conf.host_id;
 		me_.election_timeout = 500;
 		me_.election_timeout_rand = 500;
 		me_.heartbeat_timeout = 500 / 2;
@@ -71,7 +71,7 @@ public:
 private:
 	//rpc service
 	response_vote request_vote(connection* conn, const request_vote_t& args) {
-		//reject request if we have a leader or election timeout
+		//reject request if we have a leader(not election timeout)
 		//TODO
 
 		response_vote reply{};
@@ -79,7 +79,7 @@ private:
 
 		if (args.term > me_.current_term) {
 			become_follower(args.term);
-			//me_.current_leader = nullptr;
+			me_.current_leader = -1;
 		}
 
 		auto vote_granted = get_vote(args);
@@ -157,9 +157,8 @@ private:
 	void become_candidate() {
 		std::cout << "become candidate, current_term: "<< me_.current_term << std::endl;
 		me_.current_term += 1;
-		me_.voted_for = me_.node.id;
+		me_.voted_for = me_.peer_id;
 		me_.voted_count = 1;
-		me_.current_leader = {};
 		set_state(State::CANDIDATE);
 
 		// [election_timeout, 2 * election_timeout)
@@ -182,7 +181,7 @@ private:
 
 	void broad_cast_request_vote() {
 		std::cout << "request vote" << std::endl;
-		request_vote_t vote{ me_.current_term, me_.node.id, me_.log.get_last_log_index(), get_last_log_term() };
+		request_vote_t vote{ me_.current_term, me_.peer_id, me_.log.get_last_log_index(), get_last_log_term() };
 
 		std::vector <std::future<req_result>> futures;
 		for (auto& client : peers_) {
@@ -210,12 +209,6 @@ private:
 				if (response.term > me_.current_term) {
 					become_follower(response.term);
 				}
-				else if (response.term < me_.current_term) {
-					/* The node who voted for us would have obtained our term.
-					 * Therefore this is an old message we should ignore.
-					 * This happens if the network is pretty choppy. */
-					return;
-				}
 
 				//same term
 				if (response.vote_granted) {
@@ -223,6 +216,7 @@ private:
 					int num_nodex = active_node_num();
 					if (is_majority(num_nodex, me_.voted_count)) {
 						become_leader();
+
 					}
 				}
 			}
@@ -275,7 +269,7 @@ private:
 	}
 
 	bool is_majority(int num_nodes, int vote_count) {
-		if (me_.peer_nodes.size() < vote_count) {
+		if (num_nodes < vote_count) {
 			return false;
 		}
 
@@ -313,7 +307,7 @@ private:
 
 	void set_state(State state) {
 		if (state == State::LEADER) {
-			me_.current_leader = me_.node;
+			me_.current_leader = me_.peer_id;
 		}
 
 		me_.state = state;
