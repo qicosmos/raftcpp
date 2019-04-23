@@ -165,6 +165,9 @@ private:
 		random_election_timeout();
 
 		broad_cast_request_vote();
+		if (me_.state == State::CANDIDATE) {
+			std::this_thread::sleep_for(std::chrono::seconds(1));
+		}
 	}
 
 	void become_follower(uint64_t term) {
@@ -180,11 +183,14 @@ private:
 	}
 
 	void broad_cast_request_vote() {
-		std::cout << "request vote" << std::endl;
 		request_vote_t vote{ me_.current_term, me_.peer_id, me_.log.get_last_log_index(), get_last_log_term() };
-
 		std::vector <std::future<req_result>> futures;
 		for (auto& client : peers_) {
+			if (!client->has_connected()) {
+				continue;
+			}
+
+			std::cout << "request vote" << std::endl;
 			auto future = client->async_call("request_vote", vote);
 			futures.push_back(std::move(future));
 		}
@@ -248,6 +254,9 @@ private:
 
 			try {
 				auto response = future.get().as<res_append_entry>();
+				if (response.term > me_.current_term) {
+					become_follower(response.term);
+				}
 				//TODO
 			}
 			catch (const std::exception & ex) {
