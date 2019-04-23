@@ -73,7 +73,6 @@ private:
 	response_vote request_vote(connection* conn, const request_vote_t& args) {
 		//reject request if we have a leader or election timeout
 		//TODO
-		return {};
 
 		response_vote reply{};
 		reply.term = me_.current_term;
@@ -156,7 +155,7 @@ private:
 	}
 
 	void become_candidate() {
-		std::cout << "become candidate" << std::endl;
+		std::cout << "become candidate, current_term: "<< me_.current_term << std::endl;
 		me_.current_term += 1;
 		me_.voted_for = me_.node.id;
 		me_.voted_count = 1;
