@@ -38,7 +38,7 @@ namespace raftcpp {
 
 		/* 记录在当前分期内给哪个Candidate投过票，
 		   */
-		int voted_for;
+		int voted_for = -1;
 		int voted_count;
 
 		/* 日志条目集；每一个条目包含一个用户状态机执行的指令，和收到时的任期号 */
