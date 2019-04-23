@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <any>
+#include <atomic>
 #include <iguana/json.hpp>
 #include "entity.h"
 #include "log.hpp"
@@ -35,7 +36,7 @@ namespace raftcpp {
 		/* 所有服务器比较固定的状态: */
 
 		/* 服务器最后一次知道的任期号（初始化为 0，持续递增） */
-		uint64_t current_term = 0;
+		std::atomic<uint64_t> current_term = 0;
 		int peer_id; //unique id of the node
 		/* 记录在当前分期内给哪个Candidate投过票，
 		   */
@@ -56,7 +57,7 @@ namespace raftcpp {
 		int current_leader = -1;
 
 		/* 三种状态：follower/leader/candidate */
-		State state;
+		std::atomic<State> state;
 
 		int election_timeout;
 		int election_timeout_rand; //随机的选举时间

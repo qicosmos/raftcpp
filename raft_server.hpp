@@ -117,6 +117,8 @@ private:
 
 	//rpc service
 	res_append_entry append_entry(connection* conn, const req_append_entry& args) {
+		is_heartbeat_timeout_ = true;
+		is_election_timeout_ = true;
 		res_append_entry reply{};
 		reply.term = me_.current_term;
 
@@ -301,7 +303,7 @@ private:
 	bool heartbeat_timeout() {
 		std::unique_lock<std::mutex> lock(heartbeat_mtx_);
 		bool result = heartbeat_cond_.wait_for(lock, std::chrono::milliseconds(HEARTBEAT_PERIOD),
-			[this] {return is_heartbeat_timeout_; });
+			[this] {return !is_heartbeat_timeout_.load(); });
 
 		return !result;
 	}
@@ -309,7 +311,7 @@ private:
 	bool election_timeout() {
 		std::unique_lock<std::mutex> lock(election_mtx_);
 		bool result = election_cond_.wait_for(lock, std::chrono::milliseconds(me_.election_timeout_rand),
-			[this] {return is_election_timeout_; });
+			[this] {return is_election_timeout_.load(); });
 
 		return !result;
 	}
@@ -342,12 +344,12 @@ private:
 	raft_server_private me_{};
 
 	//check heartbeat timeout
-	bool is_heartbeat_timeout_ = false;
+	std::atomic_bool is_heartbeat_timeout_ = false;
 	std::mutex heartbeat_mtx_;
 	std::condition_variable heartbeat_cond_;
 
 	//check election timeout
-	bool is_election_timeout_ = false;
+	std::atomic_bool is_election_timeout_ = false;
 	std::mutex election_mtx_;
 	std::condition_variable election_cond_;
 };
