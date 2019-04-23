@@ -237,7 +237,7 @@ private:
 		req_append_entry entry{};
 		std::vector <std::future<req_result>> futures;
 		for (auto& client : peers_) {
-			auto future = client->async_call("append_entries", entry);
+			auto future = client->async_call("append_entry", entry);
 			futures.push_back(std::move(future));
 		}
 
