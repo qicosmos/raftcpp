@@ -73,6 +73,7 @@ private:
 	response_vote request_vote(connection* conn, const request_vote_t& args) {
 		//reject request if we have a leader or election timeout
 		//TODO
+		return {};
 
 		response_vote reply{};
 		reply.term = me_.current_term;
@@ -136,8 +137,12 @@ private:
 	}
 
 	void follower() {
-		if (heartbeat_timeout()&& election_timeout()) {
-			become_candidate();
+		if (heartbeat_timeout()) {
+			std::cout << "heartbeat timeout" << std::endl;
+			if (election_timeout()) {
+				std::cout << "election timeout" << std::endl;
+				become_candidate();
+			}
 		}
 	}
 
@@ -151,6 +156,7 @@ private:
 	}
 
 	void become_candidate() {
+		std::cout << "become candidate" << std::endl;
 		me_.current_term += 1;
 		me_.voted_for = me_.node.id;
 		me_.voted_count = 1;
@@ -164,16 +170,19 @@ private:
 	}
 
 	void become_follower(uint64_t term) {
+		std::cout << "become follower" << std::endl;
 		me_.current_term = term;
 		set_state(State::FOLLOWER);
 		me_.voted_for = -1;
 	}
 
 	void become_leader() {
+		std::cout << "become leader" << std::endl;
 		set_state(State::LEADER);
 	}
 
 	void broad_cast_request_vote() {
+		std::cout << "request vote" << std::endl;
 		request_vote_t vote{ me_.current_term, me_.node.id, me_.log.get_last_log_index(), get_last_log_term() };
 
 		std::vector <std::future<req_result>> futures;
