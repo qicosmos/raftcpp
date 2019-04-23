@@ -303,7 +303,7 @@ private:
 	bool heartbeat_timeout() {
 		std::unique_lock<std::mutex> lock(heartbeat_mtx_);
 		bool result = heartbeat_cond_.wait_for(lock, std::chrono::milliseconds(HEARTBEAT_PERIOD),
-			[this] {return !is_heartbeat_timeout_.load(); });
+			[this] {return is_heartbeat_timeout_.load(); });
 
 		return !result;
 	}
