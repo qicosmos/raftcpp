@@ -231,7 +231,7 @@ private:
 					me_.voted_count += 1;
 					if (is_majority(conf_.peers_addr.size(), me_.voted_count)) {
 						become_leader();
-
+						broadcast_append_entries(); //send heartbeat log to maintain the authority
 					}
 				}
 			}
