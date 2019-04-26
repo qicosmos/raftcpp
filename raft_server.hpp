@@ -36,8 +36,10 @@ public:
 		//assert(conf_.peers_addr.size() >= 2);
 		for (auto& addr : conf_.peers_addr) {
 			auto peer = std::make_shared<rpc_client>(addr.ip, addr.port);
-			peer->set_error_callback([peer](auto ec) {
+			peer->set_error_callback([this, peer](auto ec) {
 				if (ec) {
+					is_heartbeat_timeout_ = false;
+					is_election_timeout_ = false;
 					peer->async_reconnect();
 				}
 			});
