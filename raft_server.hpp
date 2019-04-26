@@ -33,21 +33,24 @@ public:
 	}
 
 	bool connect_peers(size_t timeout = 10) {
+		//assert(conf_.peers_addr.size() >= 2);
 		for (auto& addr : conf_.peers_addr) {
 			auto peer = std::make_shared<rpc_client>(addr.ip, addr.port);
 			peer->set_error_callback([peer](auto ec) {
 				if (ec) {
-					peer->async_connect();
+					peer->async_reconnect();
 				}
 			});
+
 			bool r = peer->connect(timeout);
 			if (!r) {
-				return false;
+				peer->async_reconnect();
 			}
+
 			peers_.push_back(peer);
 		}
 
-		return true;
+		return !peers_.empty();
 	}
 
 	void main_loop() {
@@ -149,11 +152,19 @@ private:
 
 	void candidate() {
 		become_candidate();
+		if (heartbeat_timeout()) {
+			std::cout << "heartbeat timeout" << std::endl;
+			if (election_timeout()) {
+				std::cout << "election timeout" << std::endl;
+				become_candidate();
+			}
+		}
 	}
 
 	void leader() {
-		std::this_thread::sleep_for(std::chrono::milliseconds(HEARTBEAT_PERIOD));
+		become_leader();		
 		broadcast_append_entries(); //send heartbeat log to maintain the authority
+		std::this_thread::sleep_for(std::chrono::milliseconds(HEARTBEAT_PERIOD));
 	}
 
 	void become_candidate() {
@@ -166,10 +177,7 @@ private:
 		// [election_timeout, 2 * election_timeout)
 		random_election_timeout();
 
-		broad_cast_request_vote();
-		if (me_.state == State::CANDIDATE) {
-			std::this_thread::sleep_for(std::chrono::seconds(1));
-		}
+		broadcast_request_vote();
 	}
 
 	void become_follower(uint64_t term) {
@@ -184,7 +192,7 @@ private:
 		set_state(State::LEADER);
 	}
 
-	void broad_cast_request_vote() {
+	void broadcast_request_vote() {
 		request_vote_t vote{ me_.current_term, me_.peer_id, me_.log.get_last_log_index(), get_last_log_term() };
 		std::vector <std::future<req_result>> futures;
 		for (auto& client : peers_) {
@@ -221,8 +229,7 @@ private:
 				//same term
 				if (response.vote_granted) {
 					me_.voted_count += 1;
-					int num_nodex = active_node_num();
-					if (is_majority(num_nodex, me_.voted_count)) {
+					if (is_majority(conf_.peers_addr.size(), me_.voted_count)) {
 						become_leader();
 
 					}

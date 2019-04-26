@@ -32,13 +32,10 @@ int main() {
 	}
 
 	raft_server server(conf);
-	bool all_connected = server.connect_peers(20000);
-	if (!all_connected) {
-		std::cout << "connect peers failed" << std::endl;
-		return -1;
+	bool some_connected = server.connect_peers(15);
+	if (!some_connected) {
+		std::cout << "connect peers all failed" << std::endl;
 	}
-
-	std::cout << "all connected" << std::endl;
 
 	server.main_loop();
 	std::string str;
