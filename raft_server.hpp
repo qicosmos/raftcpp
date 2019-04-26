@@ -287,9 +287,9 @@ private:
 	}
 
 	bool is_majority(int num_nodes, int vote_count) {
-		if (num_nodes < vote_count) {
-			return false;
-		}
+		//if (num_nodes < vote_count) {
+		//	return false;
+		//}
 
 		int half = num_nodes / 2;
 		return half + 1 <= vote_count;
