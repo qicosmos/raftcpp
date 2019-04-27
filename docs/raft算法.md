@@ -50,7 +50,7 @@
 
 ### 处理投票请求
 
-1. 如果为leader则直接回false
+1. 如果有leader并且没有选举超时则直接回false
 2. 如果term < currentTerm 则返回false
 3. 如果本地的voteFor为空或者为candidateId（幂等性？）, 并且候选者的日志至少与接受者的日志一样新,则投给其选票
 4. 怎么定义日志新
