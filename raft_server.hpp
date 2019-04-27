@@ -21,7 +21,7 @@ namespace raftcpp{
 */
 class raft_server {
 public:
-	raft_server(const config& conf, size_t thrd_num = 2) : rpc_server_(conf.host_addr.port, thrd_num),
+	raft_server(const config& conf, size_t thrd_num = 1) : rpc_server_(conf.host_addr.port, thrd_num),
 		conf_(conf), state_(State::FOLLOWER){
 		me_.peer_id = conf.host_id;
 		me_.election_timeout = 500;
@@ -38,8 +38,6 @@ public:
 			auto peer = std::make_shared<rpc_client>(addr.ip, addr.port);
 			peer->set_error_callback([this, peer](auto ec) {
 				if (ec) {
-					is_heartbeat_timeout_ = false;
-					is_election_timeout_ = false;
 					peer->async_reconnect();
 				}
 			});
@@ -124,6 +122,7 @@ private:
 	res_append_entry append_entry(connection* conn, const req_append_entry& args) {
 		is_heartbeat_timeout_ = true;
 		is_election_timeout_ = true;
+
 		res_append_entry reply{};
 		reply.term = me_.current_term;
 
@@ -190,7 +189,6 @@ private:
 	}
 
 	void become_leader() {
-		std::cout << "become leader" << std::endl;
 		set_state(State::LEADER);
 	}
 
@@ -232,6 +230,7 @@ private:
 				if (response.vote_granted) {
 					me_.voted_count += 1;
 					if (is_majority(conf_.peers_addr.size(), me_.voted_count)) {
+						std::cout << "become leader" << std::endl;
 						become_leader();
 						broadcast_append_entries(); //send heartbeat log to maintain the authority
 					}
@@ -264,6 +263,7 @@ private:
 			}
 
 			try {
+				std::cout << "broadcast heartbeat" << std::endl;
 				auto response = future.get().as<res_append_entry>();
 				if (response.term > me_.current_term) {
 					become_follower(response.term);
@@ -314,6 +314,8 @@ private:
 		bool result = heartbeat_cond_.wait_for(lock, std::chrono::milliseconds(HEARTBEAT_PERIOD),
 			[this] {return is_heartbeat_timeout_.load(); });
 
+		is_heartbeat_timeout_ = false;
+
 		return !result;
 	}
 
@@ -321,6 +323,8 @@ private:
 		std::unique_lock<std::mutex> lock(election_mtx_);
 		bool result = election_cond_.wait_for(lock, std::chrono::milliseconds(me_.election_timeout_rand),
 			[this] {return is_election_timeout_.load(); });
+
+		is_election_timeout_ = false;
 
 		return !result;
 	}
