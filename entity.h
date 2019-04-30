@@ -40,21 +40,24 @@ struct request_vote_t {
 
 struct response_vote {
 	/** currentTerm, for candidate to update itself */
-	uint64_t term;
+	uint64_t term = 0;
 
 	/** true means candidate received vote */
-	bool vote_granted;
+	bool vote_granted = false;
 
-	MSGPACK_DEFINE(term, vote_granted)
+	int candidate_id = -1;
+
+	MSGPACK_DEFINE(term, vote_granted, candidate_id)
 };
 
 struct req_append_entry {
+	int id;
 	uint64_t term;
 	uint64_t prev_log_index;
 	uint64_t prev_log_term;
 	uint64_t leader_commit_index;
 	std::vector<entry> entries;
-	MSGPACK_DEFINE(term, prev_log_index, prev_log_term, leader_commit_index, entries)
+	MSGPACK_DEFINE(id, term, prev_log_index, prev_log_term, leader_commit_index, entries)
 };
 
 struct res_append_entry {
