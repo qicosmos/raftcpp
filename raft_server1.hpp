@@ -11,7 +11,7 @@ using namespace rpc_service;
 namespace raftcpp {
 	class raft_server {
 	public:
-		raft_server(const config& conf, size_t thrd_num = 1) : current_peer_(conf.host_addr.port, thrd_num),
+		raft_server(const config& conf, size_t thrd_num = 1) : current_peer_(conf.host_addr.port, thrd_num, 0),
 			conf_(conf), state_(State::FOLLOWER) {
 			current_peer_.register_handler("request_vote", &raft_server::request_vote, this);
 			current_peer_.register_handler("append_entry", &raft_server::append_entry, this);
@@ -209,12 +209,13 @@ namespace raftcpp {
 
 		//rpc service
 		response_vote request_vote(connection* conn, const request_vote_t& args) {
+			response_vote resp{ current_term_, false, conf_.host_id };
 			if (current_leader_ != -1 && !election_flag_) {
-				return {};
+				return resp;
 			}
 
 			if (args.term < current_term_) {
-				return {};
+				return resp;
 			}
 
 			if (state_ == State::CANDIDATE) {
@@ -224,7 +225,7 @@ namespace raftcpp {
 				election_cond_.notify_one();
 			}
 
-			response_vote resp{ current_term_, true, conf_.host_id }; //ommit log now, improve later
+			resp.vote_granted = true; //ommit log now, improve later
 			return resp;
 		}
 
