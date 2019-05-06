@@ -284,7 +284,7 @@ namespace raftcpp {
 		}
 
 		bool wait_for_election() {
-			assert(state_ == State::CANDIDATE);
+			assert(state_ != State::LEADER);
 			std::unique_lock<std::mutex> lock(heartbeat_mtx_);
 			bool result = heartbeat_cond_.wait_for(lock, std::chrono::milliseconds(HEARTBEAT_PERIOD),
 				[this] { return current_leader_ != -1; });
