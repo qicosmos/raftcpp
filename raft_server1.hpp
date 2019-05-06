@@ -69,6 +69,11 @@ namespace raftcpp {
 		}
 
 		void candidate() {
+			//if detect a leader, become follower
+			if (current_leader_ != -1) {
+				become_follower();
+			}
+
 			current_term_++;
 			vote_count_++;
 			vote_for_ = conf_.host_id;
@@ -88,10 +93,9 @@ namespace raftcpp {
 			if (timeout) {
 				return;
 			}
-
-			//if detect a leader, become follower
-			if (current_leader_ != -1 && state_ != State::FOLLOWER) {
-				become_follower();
+			
+			if (current_leader_ != -1) {
+				std::cout << "become leader" << std::endl;
 			}
 		}
 
