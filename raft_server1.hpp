@@ -72,6 +72,7 @@ namespace raftcpp {
 			//if detect a leader, become follower
 			if (current_leader_ != -1) {
 				become_follower();
+				return;
 			}
 
 			current_term_++;
