@@ -11,7 +11,7 @@ using namespace rpc_service;
 namespace raftcpp {
 	class raft_server {
 	public:
-		raft_server(const config& conf, size_t thrd_num = 1) : current_peer_(conf.host_addr.port, thrd_num, 0),
+		raft_server(const config& conf, size_t thrd_num = 1) : current_peer_(conf.host_addr.port, thrd_num),
 			conf_(conf), state_(State::FOLLOWER) {
 			current_peer_.register_handler("request_vote", &raft_server::request_vote, this);
 			current_peer_.register_handler("append_entry", &raft_server::append_entry, this);
@@ -68,17 +68,31 @@ namespace raftcpp {
 			}
 		}
 
+		int get_active_num(){
+		    return std::count_if(peers_.begin(), peers_.end(), [](auto& peer){
+                return peer->has_connected();
+		    });
+		}
+
 		void candidate() {
+            current_term_++;
+            vote_count_++;
+            vote_for_ = conf_.host_id;
+            current_leader_ = -1;
+
+		    auto active_num = get_active_num();
+		    if(active_num==0){
+                std::cout << "become leader" << std::endl;
+                state_ = State::LEADER;
+                current_leader_ = conf_.host_id;
+		        return;
+		    }
+
 			//if detect a leader, become follower
 			if (current_leader_ != -1) {
 				become_follower();
 				return;
 			}
-
-			current_term_++;
-			vote_count_++;
-			vote_for_ = conf_.host_id;
-			current_leader_ = -1;
 
 			//reset election timer
 			election_flag_ = false;
@@ -164,9 +178,13 @@ namespace raftcpp {
 		}
 
 		std::vector<std::future<req_result>> broadcast_append_entries() {
-			req_append_entry entry{};
+			req_append_entry entry{conf_.host_id, current_term_};
 			std::vector<std::future<req_result>> futures;
 			for (auto& peer : peers_) {
+                if (!peer->has_connected()) {
+                    continue;
+                }
+
 				auto future = peer->async_call("append_entry", entry);
 				futures.push_back(std::move(future));
 			}
@@ -204,6 +222,10 @@ namespace raftcpp {
 
 		void leader() {
 			auto futures = broadcast_append_entries(); //broadcast heartbeat to maintain the domain
+			if(futures.empty()){
+			    std::this_thread::sleep_for(std::chrono::milliseconds(HEARTBEAT_PERIOD));
+			    return;
+			}
 			handle_append_entries_response(futures);
 		}
 
