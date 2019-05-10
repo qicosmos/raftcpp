@@ -61,6 +61,7 @@ namespace raftcpp {
 			if (args.term > current_term_) {
 				current_term_ = args.term;
 				state_ = State::FOLLOWER;
+				log_state();
 				vote_for_ = -1;
 			}
 
@@ -111,6 +112,7 @@ namespace raftcpp {
 			if (wait_for_heartbeat()) {
 				if (wait_for_election()) {
 					state_ = State::CANDIDATE;
+					log_state();
 				}
 				else {
 					//not election timeout, restart to wait for heartbeat
@@ -130,6 +132,7 @@ namespace raftcpp {
 				std::cout << "become leader" << std::endl;
 				vote_for_ = -1;
 				state_ = State::LEADER;
+				log_state();
 				vote_count_ = 0;
 				current_leader_ = conf_.host_id;
 				reset_election_timer();
@@ -140,6 +143,7 @@ namespace raftcpp {
 			auto election_term = current_term_;
 			vote_for_ = -1;
 			state_ = State::CANDIDATE;
+			log_state();
 			vote_count_ += 1;
 
 			auto futures = broadcast_request_vote();
@@ -154,6 +158,7 @@ namespace raftcpp {
 					if (term > current_term_) {
 						current_term_ = term;
 						state_ = State::FOLLOWER;
+						log_state();
 						vote_for_ = -1;
 					}
 
@@ -168,10 +173,12 @@ namespace raftcpp {
 
 				if (vote_count_ <= conf_.peers_addr.size() / 2) {
 					state_ = State::FOLLOWER;
+					log_state();
 					return;
 				}
 
 				state_ = State::LEADER;
+				log_state();
 				current_leader_ = conf_.host_id;
 				reset_election_timer();
 				//trigger sending of AppendEntries
@@ -221,6 +228,7 @@ namespace raftcpp {
 					if (response.term > current_term_) {
 						current_term_ = response.term;
 						state_ = State::FOLLOWER;
+						log_state();
 						vote_for_ = -1;
 					}
 
@@ -299,6 +307,20 @@ namespace raftcpp {
 			return std::count_if(peers_.begin(), peers_.end(), [](auto & peer) {
 				return peer->has_connected();
 			});
+		}
+
+		void log_state() {
+			switch (state_) {
+			case State::FOLLOWER:
+				std::cout << "become FOLLOWER" << std::endl;
+				break;
+			case State::CANDIDATE:
+				std::cout << "become CANDIDATE" << std::endl;
+				break;
+			case State::LEADER:
+				std::cout << "become LEADER" << std::endl;
+				break;
+			}
 		}
 
 		using peer = rpc_client;
