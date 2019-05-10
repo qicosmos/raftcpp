@@ -91,6 +91,7 @@ namespace raftcpp {
 				current_term_ = args.term;
 				state_ = State::FOLLOWER;
 				current_leader_ = args.id;
+				reset_election_timer();
 				vote_for_ = -1;
 			}
 
@@ -131,6 +132,7 @@ namespace raftcpp {
 				state_ = State::LEADER;
 				vote_count_ = 0;
 				current_leader_ = conf_.host_id;
+				reset_election_timer();
 				return;
 			}
 
@@ -275,7 +277,7 @@ namespace raftcpp {
 			assert(state_ != State::LEADER);
 			std::unique_lock<std::mutex> lock(heartbeat_mtx_);
 			bool result = election_cond_.wait_for(lock, std::chrono::milliseconds(ELECTION_TIMEOUT),
-				[this] { return election_flag_||current_leader_ != -1; });
+				[this] { return election_flag_.load(); });
 
 			if (!result) {//timeout
 				election_flag_ = true;
