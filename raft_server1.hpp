@@ -57,6 +57,10 @@ namespace raftcpp {
 
 		//rpc service
 		response_vote request_vote(connection* conn, const request_vote_t& args) {
+			if (state_ != State::CANDIDATE) {
+				return { current_term_, false };
+			}
+
 			// step down before handling RPC if need be
 			if (args.term > current_term_) {
 				current_term_ = args.term;
