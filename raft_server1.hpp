@@ -117,6 +117,14 @@ namespace raftcpp {
 				else {
 					//not election timeout, restart to wait for heartbeat
 					heartbeat_flag_ = false;
+
+					//for log
+					auto now = std::chrono::high_resolution_clock::now();
+					auto seconds = std::chrono::duration_cast<std::chrono::seconds>(now - last_time_);
+					if (seconds > std::chrono::seconds(3)) {
+						log_state();
+						last_time_ = now;
+					}					
 				}
 			}
 		}
@@ -342,5 +350,8 @@ namespace raftcpp {
 		int vote_for_ = -1; //vote who
 		int vote_count_ = 0;
 		int current_leader_ = -1;
+
+		//for log
+		std::chrono::time_point<std::chrono::high_resolution_clock> last_time_ = std::chrono::high_resolution_clock::now();
 	};
 }
