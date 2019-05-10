@@ -138,7 +138,7 @@ namespace raftcpp {
 			auto election_term = current_term_;
 			vote_for_ = -1;
 			state_ = State::CANDIDATE;
-			vote_count_ = 0;
+			vote_count_ += 1;
 
 			auto futures = broadcast_request_vote();
 			try {
