@@ -91,6 +91,15 @@ namespace raftcpp {
 			if (args.term >= current_term_) {
 				current_term_ = args.term;
 				state_ = State::FOLLOWER;
+
+				//for log
+				auto now = std::chrono::high_resolution_clock::now();
+				auto seconds = std::chrono::duration_cast<std::chrono::seconds>(now - last_time_);
+				if (seconds > std::chrono::seconds(3)) {
+					log_state();
+					last_time_ = now;
+				}
+
 				current_leader_ = args.id;
 				reset_election_timer();
 				vote_for_ = -1;
@@ -124,7 +133,7 @@ namespace raftcpp {
 					if (seconds > std::chrono::seconds(3)) {
 						log_state();
 						last_time_ = now;
-					}					
+					}
 				}
 			}
 		}
