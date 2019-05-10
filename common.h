@@ -22,5 +22,6 @@ namespace raftcpp {
 	REFLECTION(config, host_id, host_addr, peers_addr);
 
 	inline constexpr int ELECTION_TIMEOUT = 500;//milliseconds
+	inline constexpr int RPC_TIMEOUT = 500;
 	inline constexpr int HEARTBEAT_PERIOD = 500 / 2;//milliseconds
 }

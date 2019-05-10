@@ -18,22 +18,6 @@ namespace raftcpp {
 			current_peer_.run();
 		}
 
-		void main_loop() {
-			while (true) {
-				switch (state_) {
-				case State::FOLLOWER:
-					follower();
-					break;
-				case State::CANDIDATE:
-					candidate();
-					break;
-				case State::LEADER:
-					leader();
-					break;
-				}
-			}
-		}
-
 		bool connect_peers(size_t timeout = 10) {
 			//assert(conf_.peers_addr.size() >= 2);
 			for (auto& addr : conf_.peers_addr) {
@@ -55,62 +39,143 @@ namespace raftcpp {
 			return !peers_.empty();
 		}
 
-		//private:
+		void main_loop() {
+			while (true) {
+				switch (state_) {
+				case State::FOLLOWER:
+					follower();
+					break;
+				case State::CANDIDATE:
+					on_election_timer();
+					break;
+				case State::LEADER:
+					on_heartbeat_timer_or_send_trigger();
+					break;
+				}
+			}
+		}
+
+		//rpc service
+		response_vote request_vote(connection* conn, const request_vote_t& args) {
+			// step down before handling RPC if need be
+			if (args.term > current_term_) {
+				current_term_ = args.term;
+				state_ = State::FOLLOWER;
+				vote_for_ = -1;
+			}
+
+			// don't vote for out-of-date candidates
+			if (args.term < current_term_) {
+				return { current_term_, false };
+			}
+
+			// don't double vote
+			if (vote_for_ != -1 && vote_for_ != args.candidate_id) {
+				return { current_term_, false };
+			}
+
+			//check log, do it later
+			//...
+
+			vote_for_ = args.candidate_id;
+
+			//reset election timer
+			reset_election_timer();
+
+			return { current_term_, true };
+		}
+
+		res_append_entry append_entry(connection* conn, const req_append_entry& args) {
+			// step down before handling RPC if need be
+			if (args.term >= current_term_) {
+				current_term_ = args.term;
+				state_ = State::FOLLOWER;
+				current_leader_ = args.id;
+				vote_for_ = -1;
+			}
+
+			if (args.term < current_term_) {
+				return { current_term_, false };
+			}
+
+			reset_election_timer();
+
+			//check log, do it later
+			//...
+
+			return { current_term_, true };
+		}
+
 		void follower() {
 			if (wait_for_heartbeat()) {
-				if (wait_for_election0()) {
+				if (wait_for_election()) {
 					state_ = State::CANDIDATE;
 				}
 				else {
-					//not election timeout, reset heartbeat flag
+					//not election timeout, restart to wait for heartbeat
 					heartbeat_flag_ = false;
 				}
 			}
 		}
 
-		int get_active_num(){
-		    return std::count_if(peers_.begin(), peers_.end(), [](auto& peer){
-                return peer->has_connected();
-		    });
-		}
-
-		void candidate() {
-            current_term_++;
-            vote_count_++;
-            vote_for_ = conf_.host_id;
-            current_leader_ = -1;
-
-		    auto active_num = get_active_num();
-		    if(active_num==0){
-                std::cout << "become leader" << std::endl;
-                state_ = State::LEADER;
-                current_leader_ = conf_.host_id;
-		        return;
-		    }
-
-			//if detect a leader, become follower
-			if (current_leader_ != -1) {
-				become_follower();
+		void on_election_timer() {
+			if (state_ == State::LEADER) {
 				return;
 			}
 
-			//reset election timer
-			election_flag_ = false;
-			std::future<bool> future = std::async(std::launch::async, [this] {
-				return wait_for_election();
-			});
+			//maybe no acitve peer
+			auto active_num = get_active_num();
+			if (active_num == 0) {
+				std::cout << "become leader" << std::endl;
+				vote_for_ = -1;
+				state_ = State::LEADER;
+				vote_count_ = 0;
+				current_leader_ = conf_.host_id;
+				return;
+			}
+
+			current_term_ += 1;
+			auto election_term = current_term_;
+			vote_for_ = -1;
+			state_ = State::CANDIDATE;
+			vote_count_ = 0;
 
 			auto futures = broadcast_request_vote();
-			handle_request_vote_response(futures);
+			try {
+				for (auto& future : futures) {
+					auto status = future.wait_for(std::chrono::milliseconds(RPC_TIMEOUT));
+					if (status == std::future_status::timeout) {
+						continue;
+					}
 
-			//check if election timeout 
-			bool timeout = future.get();
-			if (timeout) {
-				return;
+					auto [term, granted] = future.get().as<response_vote>();
+					if (term > current_term_) {
+						current_term_ = term;
+						state_ = State::FOLLOWER;
+						vote_for_ = -1;
+					}
+
+					if (granted) {
+						vote_count_ += 1;
+					}
+				}
+
+				if (current_term_ != election_term) {
+					return;
+				}
+
+				if (vote_count_ <= conf_.peers_addr.size() / 2) {
+					state_ = State::FOLLOWER;
+				}
+
+				state_ = State::LEADER;
+				current_leader_ = conf_.host_id;
+				reset_election_timer();
+				//trigger sending of AppendEntries
+				on_heartbeat_timer_or_send_trigger();
 			}
-			
-			if (current_leader_ != -1) {
-				std::cout << "become leader" << std::endl;
+			catch (const std::exception & ex) {
+				std::cout << ex.what() << std::endl;
 			}
 		}
 
@@ -130,155 +195,62 @@ namespace raftcpp {
 			return futures;
 		}
 
-		void handle_request_vote_response(std::vector <std::future<req_result>>& futures) {
-			for (auto& future : futures) {
-				auto status = future.wait_for(std::chrono::milliseconds(ELECTION_TIMEOUT));
-				if (status == std::future_status::timeout) {
-					continue;
-				}
+		void reset_election_timer() {
+			election_flag_ = true;
+			election_cond_.notify_one();
+		}
 
-				try {
-					auto response = future.get().as<response_vote>();
-					if (election_flag_ == false) {
-						election_flag_ = true;
-						election_cond_.notify_one();
-					}
+		void on_heartbeat_timer_or_send_trigger() {
+			if (state_ != State::LEADER) {
+				return;
+			}
 
-					if (state_ != State::CANDIDATE) {//if not candidate, ommit other response						
-						return;
-					}
-
-					if (response.term > current_term_) {
-						current_leader_ = response.candidate_id; //accept the leader
-
-						become_follower();
+			auto send_term = current_term_;
+			auto futures = broadcast_append_entries();
+			try {
+				for (auto& future : futures) {
+					auto status = future.wait_for(std::chrono::milliseconds(HEARTBEAT_PERIOD));
+					if (status == std::future_status::timeout) {
 						continue;
 					}
 
-					if (response.vote_granted) {
-						vote_count_ += 1;
-						int half = (int)conf_.peers_addr.size() / 2;
-						if (vote_count_ >= (half + 1)) { //become leader
-							state_ = State::LEADER;
-							current_leader_ = conf_.host_id;
-						}
+					auto response = future.get().as<res_append_entry>();
+					if (response.term > current_term_) {
+						current_term_ = response.term;
+						state_ = State::FOLLOWER;
+						vote_for_ = -1;
+					}
+
+					if (current_term_ != send_term) {
+						return;
+					}
+
+					if (!response.success) {
+						//todo
+					}
+					else {
+						//todo
 					}
 				}
-				catch (const std::exception & ex) {
-					std::cout << ex.what() << std::endl;
-				}
+			}
+			catch (const std::exception & ex) {
+				std::cout << ex.what() << std::endl;
 			}
 		}
 
-		void become_follower() {
-			election_flag_ = false;
-			heartbeat_flag_ = false;
-			state_ = State::FOLLOWER;
-			vote_count_ = 0;
-		}
-
 		std::vector<std::future<req_result>> broadcast_append_entries() {
-			req_append_entry entry{conf_.host_id, current_term_};
+			req_append_entry entry{ conf_.host_id, current_term_ };
 			std::vector<std::future<req_result>> futures;
 			for (auto& peer : peers_) {
-                if (!peer->has_connected()) {
-                    continue;
-                }
+				if (!peer->has_connected()) {
+					continue;
+				}
 
 				auto future = peer->async_call("append_entry", entry);
 				futures.push_back(std::move(future));
 			}
 
 			return futures;
-		}
-
-		void handle_append_entries_response(std::vector <std::future<req_result>>& futures) {
-			for (auto& future : futures) {
-				auto status = future.wait_for(std::chrono::milliseconds(HEARTBEAT_PERIOD));
-				if (status == std::future_status::timeout) {
-					continue;
-				}
-
-				try {
-					auto response = future.get().as<res_append_entry>();
-					if (heartbeat_flag_ == false) {
-						heartbeat_flag_ = true;
-						heartbeat_cond_.notify_one();
-					}
-					std::cout << "broadcast heartbeat" << std::endl;
-
-					if (response.term > current_term_) {
-						current_leader_ = -1;
-						become_follower();
-					}
-
-					//TODO
-				}
-				catch (const std::exception & ex) {
-					std::cout << ex.what() << std::endl;
-				}
-			}
-		}
-
-		void leader() {
-			auto futures = broadcast_append_entries(); //broadcast heartbeat to maintain the domain
-			if(futures.empty()){
-			    std::this_thread::sleep_for(std::chrono::milliseconds(HEARTBEAT_PERIOD));
-			    return;
-			}
-			handle_append_entries_response(futures);
-		}
-
-		//rpc service
-		response_vote request_vote(connection* conn, const request_vote_t& args) {
-			response_vote resp{ current_term_, false, conf_.host_id };
-			if (current_leader_ != -1 && !election_flag_) {
-				return resp;
-			}
-
-			if (args.term < current_term_) {
-				return resp;
-			}
-
-			if (state_ == State::CANDIDATE) {
-				heartbeat_flag_ = true;
-				heartbeat_cond_.notify_one();
-				election_flag_ = true;
-				election_cond_.notify_one();
-			}
-
-			resp.vote_granted = true; //ommit log now, improve later
-			return resp;
-		}
-
-		res_append_entry append_entry(connection* conn, const req_append_entry& args) {
-			res_append_entry response{ current_term_, false };
-
-			if (state_ == State::FOLLOWER) {
-				heartbeat_flag_ = true;
-				heartbeat_cond_.notify_one();
-			}
-
-			if (args.term < current_term_) {
-				return response;
-			}
-
-			if (args.term > current_term_) {
-				response.term = args.term;
-			}
-
-			state_ = State::FOLLOWER;
-
-			if (current_leader_ == -1) {
-				current_leader_ = args.id;
-			}
-			else {
-				assert(current_leader_ == args.id);
-			}
-
-			response.success = true;
-
-			return response;////ommit log now, improve later
 		}
 
 		//true: timeout, false: not timeout
@@ -298,28 +270,25 @@ namespace raftcpp {
 			return heartbeat_flag_;
 		}
 
-		bool wait_for_election0() {
-			assert(state_ == State::FOLLOWER);
-			std::unique_lock<std::mutex> lock(heartbeat_mtx_);
-			bool result = heartbeat_cond_.wait_for(lock, std::chrono::milliseconds(HEARTBEAT_PERIOD),
-				[this] { return !heartbeat_flag_.load(); });
-
-			return !result;
-		}
-
 		bool wait_for_election() {
 			assert(state_ != State::LEADER);
 			std::unique_lock<std::mutex> lock(heartbeat_mtx_);
-			bool result = heartbeat_cond_.wait_for(lock, std::chrono::milliseconds(HEARTBEAT_PERIOD),
+			bool result = election_cond_.wait_for(lock, std::chrono::milliseconds(ELECTION_TIMEOUT),
 				[this] { return current_leader_ != -1; });
 
 			return !result;
 		}
 
 		//for test
-		void set_heartbeat_flag(bool b) {
-			heartbeat_flag_ = b;
-			heartbeat_cond_.notify_one();
+		//void set_heartbeat_flag(bool b) {
+		//	heartbeat_flag_ = b;
+		//	heartbeat_cond_.notify_one();
+		//}
+
+		int get_active_num() {
+			return std::count_if(peers_.begin(), peers_.end(), [](auto & peer) {
+				return peer->has_connected();
+			});
 		}
 
 		using peer = rpc_client;

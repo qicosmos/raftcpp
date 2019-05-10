@@ -24,18 +24,18 @@ std::pair<bool, config> get_conf(std::string_view path) {
 	return { true, conf };
 }
 
-void test_wait_for_heartbeat() {
-	raft_server server({});
-
-	std::thread thd([&server] {
-		std::this_thread::sleep_for(std::chrono::milliseconds(HEARTBEAT_PERIOD/2));
-		server.set_heartbeat_flag(true);
-	});
-	
-	bool r = server.wait_for_heartbeat();
-	assert(!r);
-	thd.join();
-}
+//void test_wait_for_heartbeat() {
+//	raft_server server({});
+//
+//	std::thread thd([&server] {
+//		std::this_thread::sleep_for(std::chrono::milliseconds(HEARTBEAT_PERIOD/2));
+//		server.set_heartbeat_flag(true);
+//	});
+//	
+//	bool r = server.wait_for_heartbeat();
+//	assert(!r);
+//	thd.join();
+//}
 
 int main() {
 	//test_wait_for_heartbeat();

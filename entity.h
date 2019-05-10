@@ -45,9 +45,7 @@ struct response_vote {
 	/** true means candidate received vote */
 	bool vote_granted = false;
 
-	int candidate_id = -1;
-
-	MSGPACK_DEFINE(term, vote_granted, candidate_id)
+	MSGPACK_DEFINE(term, vote_granted)
 };
 
 struct req_append_entry {
