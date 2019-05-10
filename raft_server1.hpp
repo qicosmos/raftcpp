@@ -158,22 +158,22 @@ namespace raftcpp {
 					if (granted) {
 						vote_count_ += 1;
 					}
-
-					if (current_term_ != election_term) {
-						return;
-					}
-
-					if (vote_count_ <= conf_.peers_addr.size() / 2) {
-						state_ = State::FOLLOWER;
-						return;
-					}
-
-					state_ = State::LEADER;
-					current_leader_ = conf_.host_id;
-					reset_election_timer();
-					//trigger sending of AppendEntries
-					on_heartbeat_timer_or_send_trigger();
 				}
+
+				if (current_term_ != election_term) {
+					return;
+				}
+
+				if (vote_count_ <= conf_.peers_addr.size() / 2) {
+					state_ = State::FOLLOWER;
+					return;
+				}
+
+				state_ = State::LEADER;
+				current_leader_ = conf_.host_id;
+				reset_election_timer();
+				//trigger sending of AppendEntries
+				on_heartbeat_timer_or_send_trigger();
 			}
 			catch (const std::exception & ex) {
 				std::cout << ex.what() << std::endl;
