@@ -165,6 +165,7 @@ namespace raftcpp {
 
 					if (vote_count_ <= conf_.peers_addr.size() / 2) {
 						state_ = State::FOLLOWER;
+						return;
 					}
 
 					state_ = State::LEADER;
