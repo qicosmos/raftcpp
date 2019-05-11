@@ -165,7 +165,7 @@ namespace raftcpp {
 			vote_for_ = -1;
 			state_ = State::CANDIDATE;
 			log_state();
-			vote_count_ += 1;
+			//vote_count_ += 1; //Provote
 
 			auto futures = broadcast_request_vote();
 			try {
@@ -192,12 +192,13 @@ namespace raftcpp {
 					return;
 				}
 
-				if (vote_count_ <= conf_.peers_addr.size() / 2) {
+				if (vote_count_ + 1 <= conf_.peers_addr.size() / 2) {
 					state_ = State::FOLLOWER;
 					log_state();
 					return;
 				}
 
+				vote_count_ += 1;
 				state_ = State::LEADER;
 				log_state();
 				current_leader_ = conf_.host_id;
