@@ -33,7 +33,7 @@ namespace raftcpp {
 			for (auto& addr : peers_addr_) {
 				auto peer = std::make_shared<rpc_client>(addr.ip, addr.port);
 				peer->set_connect_timeout(50);
-				peer->set_error_callback([this, peer](auto ec) {
+				peer->set_error_callback([this, peer](boost::system::error_code ec) {
 					if (ec) {
 						peer->async_reconnect();
 					}
@@ -243,7 +243,7 @@ namespace raftcpp {
 				if (!peer->has_connected())
 					continue;
 
-				peer->async_call(rpc_name, [this, term, counter, is_pre_vote](auto ec, auto data) {
+				peer->async_call(rpc_name, [this, term, counter, is_pre_vote](boost::system::error_code ec, string_view data) {
 					if (ec) {
 						//timeout 
 						//todo
@@ -310,7 +310,7 @@ namespace raftcpp {
 				if (!peer->has_connected())
 					continue;
 				std::cout << ++test<<" "<< host_addr_.host_id << " heartbeat to: " << '\n';
-				peer->async_call("heartbeat", [this](auto ec, auto data) {
+				peer->async_call("heartbeat", [this](boost::system::error_code ec, string_view data) {
 					if (ec) {
 						//timeout 
 						//todo
