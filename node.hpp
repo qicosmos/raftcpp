@@ -105,7 +105,7 @@ namespace raftcpp {
 					break;
 				}
 
-				if (vote_for_ == -1 && args.last_log_idx >= last_log_idx_) {
+				if ((vote_for_ == -1|| vote_for_==args.from) && args.last_log_idx >= last_log_idx_) {
 					vote_for_ = args.from;
 					vote.vote_granted = true;
 					step_down_follower(args.term);
@@ -194,27 +194,8 @@ namespace raftcpp {
 			vote.term = current_term_ + 1;
 			vote.last_log_idx = 0;//todo, should from logs
 
-			restart_pre_vote_timer();
 			start_pre_vote();
-		}
-
-		void restart_pre_vote_timer() {
-			vote_timer_.expires_from_now(std::chrono::milliseconds(VOTE_TIMEOUT));
-			vote_timer_.async_wait([this](const boost::system::error_code & ec) {
-				if (ec) {
-					return;
-				}
-
-				std::cout << "pre_vote timeout\n";
-				//std::unique_lock<std::mutex> lock(mtx_);
-				//pre_vote_timeout();
-			});
-		}
-
-		void pre_vote_timeout() {
-			if (state_ == State::FOLLOWER) {
-				election_timeout();
-			}
+			restart_election_timer(ELECTION_TIMEOUT);
 		}
 
 		void start_pre_vote() {
