@@ -140,7 +140,6 @@
     <ClInclude Include="common.h" />
     <ClInclude Include="entity.h" />
     <ClInclude Include="node.hpp" />
-    <ClInclude Include="raft_server1.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="conf\peers.conf" />
