@@ -3,65 +3,83 @@
 #include <vector>
 #include <msgpack.hpp>
 
-enum class State {
-	FOLLOWER,
-	CANDIDATE,
-	LEADER
-};
+namespace raftcpp {
+	enum class State {
+		FOLLOWER,
+		CANDIDATE,
+		LEADER
+	};
 
-struct entry {
-	/** the entry's term at the point it was created */
-	uint64_t term;
+	struct entry {
+		/** the entry's term at the point it was created */
+		uint64_t term;
 
-	/** the entry's unique ID */
-	uint64_t id;
+		/** the entry's unique ID */
+		uint64_t index;
 
-	/** type of entry */
-	int32_t type;
+		/** type of entry */
+		int32_t type;
 
-	MSGPACK_DEFINE(term, id, type)
-};
+		std::string data;
 
-struct request_vote_t {
-	/** currentTerm, to force other leader/candidate to step down */
-	uint64_t term;
+		MSGPACK_DEFINE(term, index, type, data)
+	};
 
-	 /** candidate requesting vote */
-	int candidate_id;
+	struct request_vote_t {
+		/** currentTerm, to force other leader/candidate to step down */
+		uint64_t term;
 
-	/** index of candidate's last log entry */
-	uint64_t last_log_idx;
+		/** candidate requesting vote */
+		int from;
 
-	/** term of candidate's last log entry */
-	uint64_t last_log_term;
+		/** index of candidate's last log entry */
+		uint64_t last_log_idx;
 
-	MSGPACK_DEFINE(term, candidate_id, last_log_idx, last_log_term)
-};
+		/** term of candidate's last log entry */
+		uint64_t last_log_term;
 
-struct response_vote {
-	/** currentTerm, for candidate to update itself */
-	uint64_t term = 0;
+		MSGPACK_DEFINE(term, from, last_log_idx, last_log_term)
+	};
 
-	/** true means candidate received vote */
-	bool vote_granted = false;
+	struct response_vote {
+		/** currentTerm, for candidate to update itself */
+		uint64_t term = 0;
 
-	MSGPACK_DEFINE(term, vote_granted)
-};
+		/** true means candidate received vote */
+		bool vote_granted = false;
 
-struct req_append_entry {
-	int id;
-	uint64_t term;
-	uint64_t prev_log_index;
-	uint64_t prev_log_term;
-	uint64_t leader_commit_index;
-	std::vector<entry> entries;
-	MSGPACK_DEFINE(id, term, prev_log_index, prev_log_term, leader_commit_index, entries)
-};
+		MSGPACK_DEFINE(term, vote_granted)
+	};
 
-struct res_append_entry {
-	uint64_t term;
-	bool success;
-	uint64_t current_index;
-	uint64_t first_index;
-	MSGPACK_DEFINE(term, success, current_index, first_index)
-};
+	struct req_append_entry {
+		int from;
+		uint64_t term;
+		uint64_t prev_log_index;
+		uint64_t prev_log_term;
+		uint64_t leader_commit_index;
+		std::vector<entry> entries;
+		MSGPACK_DEFINE(from, term, prev_log_index, prev_log_term, leader_commit_index, entries)
+	};
+
+	struct res_append_entry {
+		int from;
+		uint64_t term;
+		bool reject;
+		uint64_t last_log_index;
+		uint64_t reject_hint; //the position of log rejecting
+		MSGPACK_DEFINE(from, term, reject, last_log_index, reject_hint);
+	};
+
+	struct req_heartbeat {
+		int from;
+		uint64_t term;
+		uint64_t leader_commit_index;
+		MSGPACK_DEFINE(from, term, leader_commit_index);
+	};
+
+	struct res_heartbeat {
+		int from;
+		uint64_t term;
+		MSGPACK_DEFINE(from, term);
+	};
+}
