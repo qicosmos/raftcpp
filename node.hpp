@@ -55,7 +55,8 @@ namespace raftcpp {
 
 		response_vote pre_request_vote(rpc_conn conn, request_vote_t args) {
 			std::unique_lock<std::mutex> lock(mtx_);
-			response_vote vote{ current_term_, false };
+			response_vote vote = {};
+			vote.term = current_term_;
 
 			if (args.term < current_term_) {
 				return vote;
