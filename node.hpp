@@ -61,20 +61,28 @@ namespace raftcpp {
 				return vote;
 			}
 
-			if (state_ == State::LEADER) {
-				if (active_num() + 1 > (peers_addr_.size() + 1) / 2) {
-					return vote;
-				}
-			}
-			else if (state_ == State::FOLLOWER) {
-				if (leader_id_ != -1 && !election_timeout_) {
-					return vote;
-				}
+			if (check_state()) {
+				return vote;
 			}
 
 			//todo  for log index
 			vote.vote_granted = true;
 			return vote;
+		}
+
+		bool check_state() {
+			if (state_ == State::LEADER) {
+				if (active_num() + 1 > (peers_addr_.size() + 1) / 2) {
+					return true;
+				}
+			}
+			else if (state_ == State::FOLLOWER) {
+				if (leader_id_ != -1 && !election_timeout_) {
+					return true;
+				}
+			}
+
+			return false;
 		}
 
 		response_vote request_vote(rpc_conn conn, request_vote_t args) {
@@ -88,16 +96,10 @@ namespace raftcpp {
 				}
 
 				if (args.term > current_term_) {
-					if (state_ == State::LEADER) {
-						if (active_num() + 1 > (peers_addr_.size() + 1) / 2) {
-							break;
-						}
+					if (check_state()) {
+						break;
 					}
-					else if (state_ == State::FOLLOWER) {
-						if (leader_id_ != -1&& !election_timeout_) {
-							break;
-						}
-					}
+					
 					step_down_follower(args.term);
 				}
 
@@ -194,54 +196,8 @@ namespace raftcpp {
 			vote.term = current_term_ + 1;
 			vote.last_log_idx = 0;//todo, should from logs
 
-			start_pre_vote();
+			start_vote(true);
 			restart_election_timer(ELECTION_TIMEOUT);
-		}
-
-		void start_pre_vote() {
-			auto counter = std::make_shared<int>(1);
-
-			request_vote_t pre_vote{};
-			uint64_t term = current_term_;
-			pre_vote.term = current_term_ + 1;
-			pre_vote.last_log_idx = last_log_idx_;
-			pre_vote.last_log_term = last_log_term_;
-			for (auto& peer : peers_) {
-				if (!peer->has_connected())
-					continue;
-
-				peer->async_call("pre_request_vote", [this, term, counter](auto ec, auto data) {
-					if (ec) {
-						//timeout 
-						return;
-					}
-
-					auto resp_vote = as<response_vote>(data);
-
-					std::unique_lock<std::mutex> lock(mtx_);
-					if (state_ != State::FOLLOWER) {
-						return;
-					}
-
-					if (current_term_ != term) {
-						return;
-					}
-
-					if (resp_vote.term > current_term_) {
-						step_down_follower(resp_vote.term);
-						return;
-					}
-
-					if (resp_vote.vote_granted) {
-						(*counter)++;
-					}
-
-					if (*counter > (peers_.size()+1) / 2) {
-						become_candidate();
-						return;
-					}
-				}, pre_vote);
-			}
 		}
 
 		void become_candidate() {
@@ -260,12 +216,21 @@ namespace raftcpp {
 			start_vote();
 		}
 
-		void start_vote(){
-			auto counter = std::make_shared<int>(1);
-			if (*counter > (peers_addr_.size() + 1) / 2) {
-				become_leader();
-				return;
+		void handle_majority(int count, bool is_pre_vote) {
+			if (count > (peers_addr_.size() + 1) / 2) {
+				if (is_pre_vote) {
+					become_candidate();
+				}
+				else {
+					become_leader();
+				}
 			}
+		}
+
+		void start_vote(bool is_pre_vote = false){
+			auto counter = std::make_shared<int>(1);
+
+			handle_majority(*counter, is_pre_vote);
 
 			request_vote_t vote{};
 			uint64_t term = current_term_;
@@ -273,11 +238,12 @@ namespace raftcpp {
 			vote.last_log_idx = last_log_idx_;
 			vote.last_log_term = last_log_term_;
 			vote.from = host_addr_.host_id;
+			std::string rpc_name = is_pre_vote ? "pre_request_vote" : "request_vote";
 			for (auto& peer : peers_) {
 				if (!peer->has_connected())
 					continue;
 
-				peer->async_call("request_vote", [this, term, counter](auto ec, auto data) {
+				peer->async_call(rpc_name, [this, term, counter, is_pre_vote](auto ec, auto data) {
 					if (ec) {
 						//timeout 
 						//todo
@@ -302,10 +268,7 @@ namespace raftcpp {
 						(*counter)++;
 					}
 					
-					if (*counter > (peers_.size() + 1) / 2) {
-						become_leader();
-						return;
-					}
+					handle_majority(*counter, is_pre_vote);
 				}, vote);
 			}
 		}
