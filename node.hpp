@@ -248,11 +248,12 @@ namespace raftcpp {
 					if (ec) {
 						//timeout 
 						//todo
+						return;
 					}
 
 					auto resp_vote = as<response_vote>(data);
 					std::unique_lock<std::mutex> lock(mtx_);
-					if (state_ != State::CANDIDATE) {
+					if (state_ != (is_pre_vote?State::FOLLOWER:State::CANDIDATE)) {
 						return;
 					}
 
@@ -315,6 +316,7 @@ namespace raftcpp {
 					if (ec) {
 						//timeout 
 						//todo
+						return;
 					}
 
 					res_append_entry resp_entry = as<res_append_entry>(data);
