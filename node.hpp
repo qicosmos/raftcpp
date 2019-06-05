@@ -10,6 +10,11 @@ using namespace rpc_service;
 
 namespace raftcpp {
 	static std::default_random_engine g_generator;
+	std::mutex g_print_mtx;
+	void print(std::string str) {
+		std::unique_lock<std::mutex> lock(g_print_mtx);
+		std::cout << str;
+	}
 
 	class node_t {
 	public:
@@ -25,6 +30,7 @@ namespace raftcpp {
 
 		void init() {
 			state_ = State::FOLLOWER;
+			print("start pre_vote timer\n");
 			restart_election_timer(ELECTION_TIMEOUT);
 		}
 
@@ -90,7 +96,6 @@ namespace raftcpp {
 			std::unique_lock<std::mutex> lock(mtx_);
 			response_vote vote{};
 			vote.vote_granted = false;
-			std::cout << "当前term：" << current_term_ << " 请求term " << args.term <<'\n';
 			do {
 				if (args.term < current_term_) {
 					break;
@@ -119,7 +124,6 @@ namespace raftcpp {
 			} while (0);
 
 			vote.term = current_term_;
-			std::cout<<"投票请求来自："<<args.from << " 当前投给谁了："<<vote_for_ <<"granted: "<< vote.vote_granted << '\n';
 			return vote;
 		}
 
@@ -136,7 +140,7 @@ namespace raftcpp {
 
 		res_heartbeat heartbeat(rpc_conn conn, req_heartbeat args) {
 			std::unique_lock<std::mutex> lock(mtx_);
-			std::cout << host_addr_.host_id<<" heartbeat from: "<<args.from<<'\n';
+			print("recieved heartbeat\n");
 			res_heartbeat hb{ host_addr_.host_id, current_term_ };
 			if (args.term < current_term_) {
 				return hb;
@@ -147,6 +151,7 @@ namespace raftcpp {
 				current_term_ = args.term;
 				leader_commit_index_ = args.leader_commit_index;				
 				hb.term = current_term_;
+				print("start pre_vote timer\n");
 				restart_election_timer(random_election());
 				return hb;
 			}
@@ -167,8 +172,7 @@ namespace raftcpp {
 		}
 
 		void restart_election_timer(int timeout) {
-			election_timeout_ = false;
-			std::cout << "restart_election_timer\n";
+			election_timeout_ = false;			
 			election_timer_.expires_from_now(std::chrono::milliseconds(timeout));
 			election_timer_.async_wait([this](const boost::system::error_code & ec) {
 				if (ec) {
@@ -181,6 +185,7 @@ namespace raftcpp {
 		}
 
 		void election_timeout() {
+			print("election timeout\n");
 			election_timeout_ = true;
 			assert(state_ == State::FOLLOWER);
 			//if no other peers form configure, just me, become leader
@@ -198,6 +203,7 @@ namespace raftcpp {
 			vote.last_log_idx = 0;//todo, should from logs
 
 			start_vote(true);
+			print("start pre_vote timer\n");
 			restart_election_timer(ELECTION_TIMEOUT);
 		}
 
@@ -205,11 +211,12 @@ namespace raftcpp {
 			boost::system::error_code ignore;
 			election_timer_.cancel(ignore);
 
-			std::cout << "become candidate" << std::endl;
+			print("become candidate\n");
 			reset_leader_id();
 			state_ = State::CANDIDATE;
 			current_term_++;
 			vote_for_ = host_addr_.host_id;
+			print("start vote timer\n");
 			restart_vote_timer();
 
 			//const LogId last_log_id = _log_manager->last_log_id(true);
@@ -220,15 +227,18 @@ namespace raftcpp {
 		void handle_majority(int count, bool is_pre_vote) {
 			if (count > (peers_addr_.size() + 1) / 2) {
 				if (is_pre_vote) {
+					print("get major prevote\n");
 					become_candidate();
 				}
 				else {
+					print("get major vote\n");
 					become_leader();
 				}
 			}
 		}
 
 		void start_vote(bool is_pre_vote = false){
+			is_pre_vote ? print("start pre_vote\n") : print("start vote\n");
 			auto counter = std::make_shared<int>(1);
 
 			handle_majority(*counter, is_pre_vote);
@@ -280,7 +290,7 @@ namespace raftcpp {
 				return;
 			}
 
-			std::cout << "become leader" << std::endl;
+			print("become leader\n");
 			vote_timer_.cancel();
 			state_ = State::LEADER;
 			reset_leader_id(host_addr_.host_id);
@@ -307,11 +317,10 @@ namespace raftcpp {
 			//entry.prev_log_index = 
 			//entry.prev_log_term = 
 
-			int test = 0;
 			for (auto& peer : peers_) {
 				if (!peer->has_connected())
 					continue;
-				std::cout << ++test<<" "<< host_addr_.host_id << " heartbeat to: " << '\n';
+				print("send heartbeat\n");
 				peer->async_call("heartbeat", [this](boost::system::error_code ec, string_view data) {
 					if (ec) {
 						//timeout 
@@ -349,18 +358,20 @@ namespace raftcpp {
 
 		void step_down_follower(uint64_t term) {
 			if (state_ == State::CANDIDATE) {
+				print("stop vote timer\n");
 				vote_timer_.cancel();
 			}
 			else if (state_ == State::LEADER) {
 				heartbeat_timer_.cancel();
 			}
 
-			std::cout << "become follower" << std::endl;
+			print("become follower\n");
 			if (term > current_term_) {
 				vote_for_ = -1;
 			}
 			current_term_ = term;
 			state_ = State::FOLLOWER;
+			print("start pre_vote timer\n");
 			restart_election_timer(random_election());
 			reset_leader_id();
 		}
