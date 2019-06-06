@@ -3,45 +3,55 @@
 #include <filesystem>
 #include <string_view>
 #include "node.hpp"
+#include "message_bus.hpp"
 using namespace raftcpp;
 
-/*
-#include "raft_server1.hpp"
-using namespace raftcpp;
-
-std::pair<bool, config> get_conf(std::string_view path) {
-	std::ifstream ifile(path.data(), std::ios::binary);
-	if (!ifile) {
-		return {};
+struct person {
+	std::string foo(int& a) {
+		return std::to_string(a);
 	}
 
-	auto size = std::filesystem::file_size(path.data());
-	std::string str;
-	str.resize(size);
-	ifile.read(&str[0], size);
-	config conf{};
-	bool r = iguana::json::from_json(conf, str.data(), str.size());
-	if (!r) {
-		return {};
+	void foo1(const double& a) {
+		std::cout << a << std::endl;
 	}
+	int id = 0;
+};
 
-	return { true, conf };
-}*/
+template<typename T>
+void foo(T t) {
+	std::cout << t << std::endl;
+}
 
-//void test_wait_for_heartbeat() {
-//	raft_server server({});
-//
-//	std::thread thd([&server] {
-//		std::this_thread::sleep_for(std::chrono::milliseconds(HEARTBEAT_PERIOD/2));
-//		server.set_heartbeat_flag(true);
-//	});
-//	
-//	bool r = server.wait_for_heartbeat();
-//	assert(!r);
-//	thd.join();
-//}
+void foo(int a, double b) {
+	std::cout << a + b << std::endl;
+}
+
+void foo1(std::string s) {
+	std::cout << s << std::endl;
+}
+
+void test_msg_bus() {
+	using T = typename function_traits<decltype(&person::foo)>::bare_tuple_type;
+	message_bus& bus = message_bus::get();
+
+	person p;
+	bus.register_handler<pre_vote>(&person::foo, &p);
+	bus.register_handler<vote>(&person::foo1, &p);
+
+	std::string s = bus.call<pre_vote, std::string>(2);
+	bus.call<vote>(1.5);
+
+	bus.register_handler<for_test>(&foo<int>);
+	bus.call<for_test>(1);
+
+	bus.register_handler<for_test1>([](int t) {
+		std::cout << t << std::endl;
+	});
+	bus.call<for_test1>(2);
+}
 
 int main() {
+	test_msg_bus();
 	config conf{ {{"127.0.0.1", 9000, 0}, {"127.0.0.1", 9001, 1}, {"127.0.0.1", 9002, 2}} };
 	address host{};
 	std::vector<address> peers;
@@ -82,23 +92,8 @@ int main() {
 	}
 
 	node.init();
-
 	node.run();
-	//test_wait_for_heartbeat();
 
-	//auto [r, conf] = get_conf("./conf/peers.conf");
-	//if (!r) {
-	//	std::cout << "parse config file failed" << std::endl;
-	//	return -1;
-	//}
-
-	//raft_server server(conf);
-	//bool some_connected = server.connect_peers(3);
-	//if (!some_connected) {
-	//	std::cout << "connect peers all failed" << std::endl;
-	//}
-
-	//server.main_loop();
 	std::string str;
 	std::cin >> str;
 }

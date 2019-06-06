@@ -23,4 +23,15 @@ namespace raftcpp {
 	static const int VOTE_TIMEOUT = 500;//milliseconds
 	static const int RPC_TIMEOUT = 500;
 	static const int HEARTBEAT_PERIOD = ELECTION_TIMEOUT / 2;//milliseconds
+
+	enum class MessageKey {
+		pre_vote,
+		vote,
+		for_test,
+		for_test1,
+	};
+	constexpr MessageKey pre_vote = MessageKey::pre_vote;
+	constexpr MessageKey vote = MessageKey::vote;
+	constexpr MessageKey for_test = MessageKey::for_test;
+	constexpr MessageKey for_test1 = MessageKey::for_test1;
 }
