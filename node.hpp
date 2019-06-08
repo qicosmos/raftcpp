@@ -7,6 +7,7 @@ using namespace rpc_service;
 
 #include "entity.h"
 #include "common.h"
+#include "message_bus.hpp"
 
 namespace raftcpp {
 	static std::default_random_engine g_generator;
@@ -18,9 +19,8 @@ namespace raftcpp {
 
 	class node_t {
 	public:
-		node_t(const address& host, std::vector<address> peers, size_t thrd_num = 1) : election_timer_(timer_ios_), vote_timer_(timer_ios_),
-			heartbeat_timer_(timer_ios_), work_(ios_), timer_work_(timer_ios_), current_peer_(host.port, thrd_num, 0),
-			host_addr_(host), peers_addr_(std::move(peers)){
+		node_t(const address& host, std::vector<address> peers, size_t thrd_num = 1) : work_(ios_), current_peer_(host.port, thrd_num, 0),
+			host_addr_(host), peers_addr_(std::move(peers)), bus_(message_bus::get()) {
 			current_peer_.register_handler("request_vote", &node_t::request_vote, this);
 			current_peer_.register_handler("append_entry", &node_t::append_entry, this);
 			current_peer_.register_handler("pre_request_vote", &node_t::pre_request_vote, this);
@@ -29,6 +29,10 @@ namespace raftcpp {
 		}
 
 		void init() {
+			bus_.subscribe<msg_election_timeout>(&node_t::election_timeout, this);
+			bus_.subscribe<msg_vote_timeout>(&node_t::vote_timeout, this);
+			bus_.subscribe<msg_heartbeat_timeout>(&node_t::start_heartbeat, this);
+
 			state_ = State::FOLLOWER;
 			print("start pre_vote timer\n");
 			restart_election_timer(ELECTION_TIMEOUT);
@@ -172,20 +176,13 @@ namespace raftcpp {
 		}
 
 		void restart_election_timer(int timeout) {
-			election_timeout_ = false;			
-			election_timer_.expires_from_now(std::chrono::milliseconds(timeout));
-			election_timer_.async_wait([this](const boost::system::error_code & ec) {
-				if (ec) {
-					return;
-				}
-
-				std::unique_lock<std::mutex> lock(mtx_);
-				election_timeout();
-			});
+			election_timeout_ = false;
+			bus_.send_msg<msg_restart_election_timer>(timeout);
 		}
 
 		void election_timeout() {
 			print("election timeout\n");
+			std::unique_lock<std::mutex> lock(mtx_);
 			election_timeout_ = true;
 			assert(state_ == State::FOLLOWER);
 			//if no other peers form configure, just me, become leader
@@ -208,8 +205,7 @@ namespace raftcpp {
 		}
 
 		void become_candidate() {
-			boost::system::error_code ignore;
-			election_timer_.cancel(ignore);
+			bus_.send_msg<msg_cancel_election_timer>();
 
 			print("become candidate\n");
 			reset_leader_id();
@@ -217,7 +213,7 @@ namespace raftcpp {
 			current_term_++;
 			vote_for_ = host_addr_.host_id;
 			print("start vote timer\n");
-			restart_vote_timer();
+			bus_.send_msg<msg_restart_vote_timer>();
 
 			//const LogId last_log_id = _log_manager->last_log_id(true);
 
@@ -291,21 +287,10 @@ namespace raftcpp {
 			}
 
 			print("become leader\n");
-			vote_timer_.cancel();
+			bus_.send_msg<msg_cancel_vote_timer>();
 			state_ = State::LEADER;
 			reset_leader_id(host_addr_.host_id);
-			restart_heartbeat_timer();
-		}
-
-		void restart_heartbeat_timer() {
-			heartbeat_timer_.expires_from_now(std::chrono::milliseconds(HEARTBEAT_PERIOD));
-			heartbeat_timer_.async_wait([this](const boost::system::error_code & ec) {
-				if (ec) {
-					return;
-				}
-
-				start_heartbeat();
-			});
+			bus_.send_msg<msg_restart_heartbeat_timer>();
 		}
 
 		void start_heartbeat() {
@@ -333,18 +318,7 @@ namespace raftcpp {
 				}, entry);
 			}
 
-			restart_heartbeat_timer();
-		}
-
-		void restart_vote_timer() {
-			vote_timer_.expires_from_now(std::chrono::milliseconds(VOTE_TIMEOUT));
-			vote_timer_.async_wait([this](const boost::system::error_code & ec) {
-				if (ec) {
-					return;
-				}
-
-				vote_timeout();
-			});
+			bus_.send_msg<msg_restart_heartbeat_timer>();
 		}
 
 		void vote_timeout() {
@@ -359,10 +333,10 @@ namespace raftcpp {
 		void step_down_follower(uint64_t term) {
 			if (state_ == State::CANDIDATE) {
 				print("stop vote timer\n");
-				vote_timer_.cancel();
+				bus_.send_msg<msg_cancel_vote_timer>();
 			}
 			else if (state_ == State::LEADER) {
-				heartbeat_timer_.cancel();
+				bus_.send_msg<msg_cancel_heartbeat_timer>();
 			}
 
 			print("become follower\n");
@@ -381,9 +355,7 @@ namespace raftcpp {
 		}
 
 		void run() {
-			std::thread thd([this] {timer_ios_.run(); });
 			ios_.run();
-			thd.join();
 		}
 
 		template<typename T>
@@ -414,12 +386,8 @@ namespace raftcpp {
 		asio::io_service ios_;
 		boost::asio::io_service::work work_;
 
-		asio::io_service timer_ios_;
-		boost::asio::io_service::work timer_work_;
-		boost::asio::steady_timer election_timer_;
-		boost::asio::steady_timer vote_timer_;
-		boost::asio::steady_timer heartbeat_timer_;
 		bool election_timeout_ = false;
+		message_bus& bus_;
 
 		std::mutex mtx_;
 	};

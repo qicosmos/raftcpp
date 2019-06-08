@@ -16,14 +16,14 @@ namespace raftcpp {
 		}
 
 		template<MessageKey key, typename Function, typename = std::enable_if_t<!std::is_member_function_pointer<Function>::value>>
-		void register_handler(const Function & f) {
+		void subscribe(const Function & f) {
 			using namespace std::placeholders;
 			check_duplicate<key>();
 			invokers_[key] = { std::bind(&invoker<Function>::apply, f, _1, _2) };
 		}
 
 		template <MessageKey key, typename Function, typename Self, typename = std::enable_if_t<std::is_member_function_pointer<Function>::value>>
-		void register_handler(Function f, Self * t) {
+		void subscribe(const Function& f, Self * t) {
 			using namespace std::placeholders;
 			check_duplicate<key>();
 			invokers_[key] = { std::bind(&invoker<Function>::template apply_mem<Self>, f, t, _1, _2) };
@@ -31,7 +31,7 @@ namespace raftcpp {
 
 		//non-void function
 		template <MessageKey key, typename T, typename ... Args>
-		T call(Args&& ... args) {
+		T send_msg(Args&& ... args) {
 			auto it = invokers_.find(key);
 			assert(it != invokers_.end());
 
@@ -42,7 +42,7 @@ namespace raftcpp {
 
 		//void function
 		template <MessageKey key, typename ... Args>
-		void call(Args && ... args) {
+		void send_msg(Args && ... args) {
 			auto it = invokers_.find(key);
 			assert(it != invokers_.end());
 
@@ -106,7 +106,7 @@ namespace raftcpp {
 			}
 
 			template <typename Self>
-			static inline void apply_mem(Function f, Self * self, void* bl, void* result) {
+			static inline void apply_mem(const Function& f, Self * self, void* bl, void* result) {
 				using bare_tuple_type = typename function_traits<Function>::bare_tuple_type;
 				bare_tuple_type* tp = static_cast<bare_tuple_type*>(bl);
 
@@ -118,19 +118,19 @@ namespace raftcpp {
 			}
 
 			template<typename F, typename Self, typename ... Args>
-			static void call_mem(F f, Self* self, const std::tuple<Args...>& tp, void*, std::true_type) {
+			static void call_mem(const F& f, Self* self, const std::tuple<Args...>& tp, void*, std::true_type) {
 				call_member_helper(f, self, std::make_index_sequence<sizeof...(Args)>{}, tp);
 			}
 
 			template<typename F, typename Self, typename ... Args>
-			static void call_mem(F f, Self* self, const std::tuple<Args...>& tp, void* result, std::false_type) {
+			static void call_mem(const F& f, Self* self, const std::tuple<Args...>& tp, void* result, std::false_type) {
 				auto r = call_member_helper(f, self, std::make_index_sequence<sizeof...(Args)>{}, tp);
 				if (result)
 					* (decltype(r)*)result = r;
 			}
 
 			template<typename F, typename Self, size_t... I, typename ... Args>
-			static auto call_member_helper(F f, Self* self, const std::index_sequence<I...>&, const std::tuple<Args...>& tup)-> decltype((self->*f)(std::get<I>(tup)...)) {
+			static auto call_member_helper(const F& f, Self* self, const std::index_sequence<I...>&, const std::tuple<Args...>& tup)-> decltype((self->*f)(std::get<I>(tup)...)) {
 				return (self->*f)(std::get<I>(tup)...);
 			}
 		};

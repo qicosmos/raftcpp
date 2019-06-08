@@ -3,7 +3,7 @@
 #include <filesystem>
 #include <string_view>
 #include "node.hpp"
-#include "message_bus.hpp"
+#include "timer.hpp"
 using namespace raftcpp;
 
 struct person {
@@ -35,23 +35,23 @@ void test_msg_bus() {
 	message_bus& bus = message_bus::get();
 
 	person p;
-	bus.register_handler<pre_vote>(&person::foo, &p);
-	bus.register_handler<vote>(&person::foo1, &p);
+	bus.subscribe<msg_pre_vote>(&person::foo, &p);
+	bus.subscribe<msg_vote>(&person::foo1, &p);
+	bus.subscribe<msg_pre_vote>([] {});
 
-	std::string s = bus.call<pre_vote, std::string>(2);
-	bus.call<vote>(1.5);
+	std::string s = bus.send_msg<msg_pre_vote, std::string>(2);
+	bus.send_msg<msg_vote>(1.5);
 
-	bus.register_handler<for_test>(&foo<int>);
-	bus.call<for_test>(1);
+	bus.subscribe<for_test>(&foo<int>);
+	bus.send_msg<for_test>(1);
 
-	bus.register_handler<for_test1>([](int t) {
+	bus.subscribe<for_test1>([](int t) {
 		std::cout << t << std::endl;
 	});
-	bus.call<for_test1>(2);
+	bus.send_msg<for_test1>(2);
 }
 
 int main() {
-	test_msg_bus();
 	config conf{ {{"127.0.0.1", 9000, 0}, {"127.0.0.1", 9001, 1}, {"127.0.0.1", 9002, 2}} };
 	address host{};
 	std::vector<address> peers;
@@ -78,7 +78,7 @@ int main() {
 		}
 	}
 	
-
+	timer_t timer;
 	node_t node(host, peers);
 
 	while (true) {
