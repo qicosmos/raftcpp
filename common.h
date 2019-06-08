@@ -34,6 +34,20 @@ namespace raftcpp {
 		restart_heartbeat_timer,
 		heartbeat_timeout,
 		cancel_heartbeat_timer,
+		pre_request_vote,
+		request_vote,
+		append_entry,
+		heartbeat,
+
+		handle_response_of_request_pre_vote,
+		handle_response_of_request_vote,
+		handle_response_of_request_heartbeat,
+
+		broadcast_request_vote,
+		broadcast_request_heartbeat,
+
+		active_num,
+
 		pre_vote,
 		vote,
 		for_test,
@@ -50,6 +64,20 @@ namespace raftcpp {
 	constexpr MessageKey msg_restart_heartbeat_timer = MessageKey::restart_heartbeat_timer;
 	constexpr MessageKey msg_heartbeat_timeout = MessageKey::heartbeat_timeout;
 	constexpr MessageKey msg_cancel_heartbeat_timer = MessageKey::cancel_heartbeat_timer;
+
+	constexpr MessageKey msg_request_vote = MessageKey::request_vote;
+	constexpr MessageKey msg_pre_request_vote = MessageKey::pre_request_vote;
+	constexpr MessageKey msg_append_entry = MessageKey::append_entry;
+	constexpr MessageKey msg_heartbeat = MessageKey::heartbeat;
+
+	constexpr MessageKey msg_broadcast_request_vote = MessageKey::broadcast_request_vote;
+	constexpr MessageKey msg_broadcast_request_heartbeat = MessageKey::broadcast_request_heartbeat;
+
+	constexpr MessageKey msg_handle_response_of_request_pre_vote = MessageKey::handle_response_of_request_pre_vote;
+	constexpr MessageKey msg_handle_response_of_request_vote = MessageKey::handle_response_of_request_vote;
+	constexpr MessageKey msg_handle_response_of_request_heartbeat = MessageKey::handle_response_of_request_heartbeat;
+
+	constexpr MessageKey msg_active_num = MessageKey::active_num;
 
 	constexpr MessageKey msg_pre_vote = MessageKey::pre_vote;
 	constexpr MessageKey msg_vote = MessageKey::vote;

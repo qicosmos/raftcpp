@@ -1,4 +1,5 @@
 #pragma once
+#include <use_asio.hpp>
 #include "common.h"
 #include "message_bus.hpp"
 

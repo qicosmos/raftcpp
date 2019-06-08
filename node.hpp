@@ -1,8 +1,5 @@
 #pragma once
-#include <rpc_server.h>
-#include <rpc_client.hpp>
-using namespace rest_rpc;
-using namespace rpc_service;
+#include <mutex>
 #include <random>
 
 #include "entity.h"
@@ -11,59 +8,33 @@ using namespace rpc_service;
 
 namespace raftcpp {
 	static std::default_random_engine g_generator;
-	std::mutex g_print_mtx;
-	void print(std::string str) {
-		std::unique_lock<std::mutex> lock(g_print_mtx);
-		std::cout << str;
-	}
 
-	class node_t {
+	class consensus {
 	public:
-		node_t(const address& host, std::vector<address> peers, size_t thrd_num = 1) : work_(ios_), current_peer_(host.port, thrd_num, 0),
-			host_addr_(host), peers_addr_(std::move(peers)), bus_(message_bus::get()) {
-			current_peer_.register_handler("request_vote", &node_t::request_vote, this);
-			current_peer_.register_handler("append_entry", &node_t::append_entry, this);
-			current_peer_.register_handler("pre_request_vote", &node_t::pre_request_vote, this);
-			current_peer_.register_handler("heartbeat", &node_t::heartbeat, this);
-			current_peer_.async_run();
+		consensus(int host_id, int peers_num) : host_id_(host_id), peers_num_(peers_num), bus_(message_bus::get()) {
+			init();
 		}
 
 		void init() {
-			bus_.subscribe<msg_election_timeout>(&node_t::election_timeout, this);
-			bus_.subscribe<msg_vote_timeout>(&node_t::vote_timeout, this);
-			bus_.subscribe<msg_heartbeat_timeout>(&node_t::start_heartbeat, this);
+			bus_.subscribe<msg_election_timeout>(&consensus::election_timeout, this);
+			bus_.subscribe<msg_vote_timeout>(&consensus::vote_timeout, this);
+			bus_.subscribe<msg_heartbeat_timeout>(&consensus::start_heartbeat, this);
+
+			bus_.subscribe<msg_pre_request_vote>(&consensus::pre_request_vote, this);
+			bus_.subscribe<msg_request_vote>(&consensus::request_vote, this);
+			bus_.subscribe<msg_heartbeat>(&consensus::heartbeat, this);
+			bus_.subscribe<msg_append_entry>(&consensus::append_entry, this);
+
+			bus_.subscribe<msg_handle_response_of_request_vote>(&consensus::handle_response_of_request_vote, this);
+			bus_.subscribe<msg_handle_response_of_request_heartbeat>(&consensus::handle_response_of_request_heartbeat, this);
 
 			state_ = State::FOLLOWER;
 			print("start pre_vote timer\n");
 			restart_election_timer(ELECTION_TIMEOUT);
 		}
 
-		int connect_peers(size_t timeout = 10) {
-			int connected_num = 0;
-			for (auto& addr : peers_addr_) {
-				auto peer = std::make_shared<rpc_client>(addr.ip, addr.port);
-				peer->set_connect_timeout(50);
-				peer->set_error_callback([this, peer](boost::system::error_code ec) {
-					if (ec) {
-						peer->async_reconnect();
-					}
-				});
-
-				bool r = peer->connect(timeout);
-				if (r) {
-					connected_num++;					
-				}
-				else {
-					peer->async_reconnect();
-				}
-
-				peers_.push_back(peer);
-			}
-
-			return connected_num;
-		}
-
-		response_vote pre_request_vote(rpc_conn conn, request_vote_t args) {
+		/********** rpc service start *********/
+		response_vote pre_request_vote(request_vote_t args) {
 			std::unique_lock<std::mutex> lock(mtx_);
 			response_vote vote = {};
 			vote.term = current_term_;
@@ -81,22 +52,7 @@ namespace raftcpp {
 			return vote;
 		}
 
-		bool check_state() {
-			if (state_ == State::LEADER) {
-				if (active_num() + 1 > (peers_addr_.size() + 1) / 2) {
-					return true;
-				}
-			}
-			else if (state_ == State::FOLLOWER) {
-				if (leader_id_ != -1 && !election_timeout_) {
-					return true;
-				}
-			}
-
-			return false;
-		}
-
-		response_vote request_vote(rpc_conn conn, request_vote_t args) {
+		response_vote request_vote(request_vote_t args) {
 			std::unique_lock<std::mutex> lock(mtx_);
 			response_vote vote{};
 			vote.vote_granted = false;
@@ -131,21 +87,10 @@ namespace raftcpp {
 			return vote;
 		}
 
-		int active_num() {
-			int num = 0;
-			for (auto& peer : peers_) {
-				if (peer->has_connected()) {
-					num++;
-				}
-			}
-
-			return num;
-		}
-
-		res_heartbeat heartbeat(rpc_conn conn, req_heartbeat args) {
+		res_heartbeat heartbeat(req_heartbeat args) {
 			std::unique_lock<std::mutex> lock(mtx_);
 			print("recieved heartbeat\n");
-			res_heartbeat hb{ host_addr_.host_id, current_term_ };
+			res_heartbeat hb{ host_id_, current_term_ };
 			if (args.term < current_term_) {
 				return hb;
 			}
@@ -170,10 +115,11 @@ namespace raftcpp {
 			return hb;
 		}
 
-		res_append_entry append_entry(rpc_conn conn, req_append_entry args) {
+		res_append_entry append_entry(req_append_entry args) {
 			//todo log/progress
 			return {};
 		}
+		/********** rpc service end *********/
 
 		void restart_election_timer(int timeout) {
 			election_timeout_ = false;
@@ -186,7 +132,7 @@ namespace raftcpp {
 			election_timeout_ = true;
 			assert(state_ == State::FOLLOWER);
 			//if no other peers form configure, just me, become leader
-			if (peers_addr_.empty()) {
+			if (peers_num_==0) {
 				become_candidate();
 				return;
 			}
@@ -211,26 +157,13 @@ namespace raftcpp {
 			reset_leader_id();
 			state_ = State::CANDIDATE;
 			current_term_++;
-			vote_for_ = host_addr_.host_id;
+			vote_for_ = host_id_;
 			print("start vote timer\n");
 			bus_.send_msg<msg_restart_vote_timer>();
 
 			//const LogId last_log_id = _log_manager->last_log_id(true);
 
 			start_vote();
-		}
-
-		void handle_majority(int count, bool is_pre_vote) {
-			if (count > (peers_addr_.size() + 1) / 2) {
-				if (is_pre_vote) {
-					print("get major prevote\n");
-					become_candidate();
-				}
-				else {
-					print("get major vote\n");
-					become_leader();
-				}
-			}
 		}
 
 		void start_vote(bool is_pre_vote = false){
@@ -244,81 +177,9 @@ namespace raftcpp {
 			vote.term = current_term_;
 			vote.last_log_idx = last_log_idx_;
 			vote.last_log_term = last_log_term_;
-			vote.from = host_addr_.host_id;
-			std::string rpc_name = is_pre_vote ? "pre_request_vote" : "request_vote";
-			for (auto& peer : peers_) {
-				if (!peer->has_connected())
-					continue;
+			vote.from = host_id_;
 
-				peer->async_call(rpc_name, [this, term, counter, is_pre_vote](boost::system::error_code ec, string_view data) {
-					if (ec) {
-						//timeout 
-						//todo
-						return;
-					}
-
-					auto resp_vote = as<response_vote>(data);
-					std::unique_lock<std::mutex> lock(mtx_);
-					if (state_ != (is_pre_vote?State::FOLLOWER:State::CANDIDATE)) {
-						return;
-					}
-
-					if (current_term_ != term) {
-						return;
-					}
-
-					if (resp_vote.term > current_term_) {
-						step_down_follower(resp_vote.term);
-						return;
-					}
-
-					if (resp_vote.vote_granted) {
-						(*counter)++;
-					}
-					
-					handle_majority(*counter, is_pre_vote);
-				}, vote);
-			}
-		}
-
-		void become_leader() {
-			if (state_ != State::CANDIDATE) {
-				return;
-			}
-
-			print("become leader\n");
-			bus_.send_msg<msg_cancel_vote_timer>();
-			state_ = State::LEADER;
-			reset_leader_id(host_addr_.host_id);
-			bus_.send_msg<msg_restart_heartbeat_timer>();
-		}
-
-		void start_heartbeat() {
-			std::unique_lock<std::mutex> lock(mtx_);
-			req_append_entry entry{};
-			entry.from = host_addr_.host_id;
-			entry.term = current_term_;
-			entry.leader_commit_index = leader_commit_index_;
-			//entry.prev_log_index = 
-			//entry.prev_log_term = 
-
-			for (auto& peer : peers_) {
-				if (!peer->has_connected())
-					continue;
-				print("send heartbeat\n");
-				peer->async_call("heartbeat", [this](boost::system::error_code ec, string_view data) {
-					if (ec) {
-						//timeout 
-						//todo
-						return;
-					}
-
-					res_append_entry resp_entry = as<res_append_entry>(data);
-					//todo progress
-				}, entry);
-			}
-
-			bus_.send_msg<msg_restart_heartbeat_timer>();
+			bus_.send_msg<msg_broadcast_request_vote>(is_pre_vote, term, counter, vote);
 		}
 
 		void vote_timeout() {
@@ -350,12 +211,91 @@ namespace raftcpp {
 			reset_leader_id();
 		}
 
+		void handle_response_of_request_vote(response_vote& resp_vote, uint64_t term, std::shared_ptr<int> counter, bool is_pre_vote) {
+			std::unique_lock<std::mutex> lock(mtx_);
+			if (state_ != (is_pre_vote ? State::FOLLOWER : State::CANDIDATE)) {
+				return;
+			}
+
+			if (current_term_ != term) {
+				return;
+			}
+
+			if (resp_vote.term > current_term_) {
+				step_down_follower(resp_vote.term);
+				return;
+			}
+
+			if (resp_vote.vote_granted) {
+				(*counter)++;
+			}
+
+			handle_majority(*counter, is_pre_vote);
+		}
+
+		void handle_response_of_request_heartbeat(res_append_entry resp_entry) {
+			//todo progress
+		}
+
+		void handle_majority(int count, bool is_pre_vote) {
+			if (count > (peers_num_ + 1) / 2) {
+				if (is_pre_vote) {
+					print("get major prevote\n");
+					become_candidate();
+				}
+				else {
+					print("get major vote\n");
+					become_leader();
+				}
+			}
+		}
+
+		void become_leader() {
+			if (state_ != State::CANDIDATE) {
+				return;
+			}
+
+			print("become leader\n");
+			bus_.send_msg<msg_cancel_vote_timer>();
+			state_ = State::LEADER;
+			reset_leader_id(host_id_);
+			bus_.send_msg<msg_restart_heartbeat_timer>();
+		}
+
+		void start_heartbeat() {
+			std::unique_lock<std::mutex> lock(mtx_);
+			req_append_entry entry{};
+			entry.from = host_id_;
+			entry.term = current_term_;
+			entry.leader_commit_index = leader_commit_index_;
+			//entry.prev_log_index = 
+			//entry.prev_log_term = 
+
+			bus_.send_msg<msg_broadcast_request_heartbeat>(entry);
+			bus_.send_msg<msg_restart_heartbeat_timer>();
+		}
+
 		void reset_leader_id(int id = -1) {
 			leader_id_ = id;
 		}
 
-		void run() {
-			ios_.run();
+		bool check_state() {
+			if (state_ == State::LEADER) {
+				if (active_num() + 1 > (peers_num_ + 1) / 2) {
+					return true;
+				}
+			}
+			else if (state_ == State::FOLLOWER) {
+				if (leader_id_ != -1 && !election_timeout_) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		int active_num() {
+			return bus_.send_msg<msg_active_num, int>();
 		}
 
 		template<typename T>
@@ -376,19 +316,11 @@ namespace raftcpp {
 		uint64_t last_log_term_ = 0;
 		uint64_t leader_commit_index_ = 0;
 		int vote_for_ = -1;
-
-		rpc_server current_peer_;
-		address host_addr_;
-		std::vector<address> peers_addr_;
-
-		std::vector<std::shared_ptr<rpc_client>> peers_;
-
-		asio::io_service ios_;
-		boost::asio::io_service::work work_;
-
 		bool election_timeout_ = false;
-		message_bus& bus_;
 
+		int host_id_;
+		int peers_num_ = 0;
+		message_bus& bus_;
 		std::mutex mtx_;
 	};
 }
