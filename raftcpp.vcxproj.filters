@@ -26,9 +26,6 @@
     <ClInclude Include="common.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="node.hpp">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="message_bus.hpp">
       <Filter>头文件</Filter>
     </ClInclude>
@@ -36,6 +33,9 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="nodes.hpp">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="consensus.hpp">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

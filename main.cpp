@@ -4,7 +4,7 @@
 #include <string_view>
 #include "timer.hpp"
 #include "nodes.hpp"
-#include "node.hpp"
+#include "consensus.hpp"
 using namespace raftcpp;
 
 struct person {
