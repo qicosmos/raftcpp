@@ -42,21 +42,21 @@ void test_msg_bus() {
 	auto c = std::make_shared<int>(2);
 	bus.send_msg<msg_cancel_vote_timer>(1, std::string("b"), c);
 
-	person p;
-	bus.subscribe<msg_pre_vote>(&person::foo, &p);
-	bus.subscribe<msg_vote>(&person::foo1, &p);
-	bus.subscribe<msg_pre_vote>([] {});
+	//person p;
+	//bus.subscribe<msg_pre_vote>(&person::foo, &p);
+	//bus.subscribe<msg_vote>(&person::foo1, &p);
+	//bus.subscribe<msg_pre_vote>([] {});
 
-	std::string s = bus.send_msg<msg_pre_vote, std::string>(2);
-	bus.send_msg<msg_vote>(1.5);
+	//std::string s = bus.send_msg<msg_pre_vote, std::string>(2);
+	//bus.send_msg<msg_vote>(1.5);
 
-	bus.subscribe<for_test>(&foo1);
-	bus.send_msg<for_test>(std::string("test"));
+	//bus.subscribe<for_test>(&foo1);
+	//bus.send_msg<for_test>(std::string("test"));
 
-	bus.subscribe<for_test1>([](int t) {
-		std::cout << t << std::endl;
-	});
-	bus.send_msg<for_test1>(2);
+	//bus.subscribe<for_test1>([](int t) {
+	//	std::cout << t << std::endl;
+	//});
+	//bus.send_msg<for_test1>(2);
 }
 
 int main() {
@@ -88,9 +88,9 @@ int main() {
 	}
 	
 	timer_t timer;
-	consensus cons(host.host_id, peers.size());
+	consensus cons(host.host_id, (int)peers.size());
 
-	nodes_t nodes(host, peers, 1);
+	nodes_t nodes(host, peers, cons, 1);
 
 	while (true) {
 		int connected_num = nodes.connect_peers(1);

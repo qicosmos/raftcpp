@@ -10,7 +10,7 @@ namespace raftcpp {
 		LEADER
 	};
 
-	struct entry {
+	struct entry_t {
 		/** the entry's term at the point it was created */
 		uint64_t term;
 
@@ -57,7 +57,7 @@ namespace raftcpp {
 		uint64_t prev_log_index;
 		uint64_t prev_log_term;
 		uint64_t leader_commit_index;
-		std::vector<entry> entries;
+		std::vector<entry_t> entries;
 		MSGPACK_DEFINE(from, term, prev_log_index, prev_log_term, leader_commit_index, entries)
 	};
 

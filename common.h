@@ -7,10 +7,17 @@
 #include "entity.h"
 
 namespace raftcpp {
+	struct progress_t {
+		uint64_t match = 0;
+		uint64_t next = 1;
+		bool pause = false;
+	};
+
 	struct address {
 		std::string ip;
 		int port;
 		int host_id;
+		progress_t progress;
 	};
 	//REFLECTION(address, ip, port, host_id);
 
@@ -42,16 +49,12 @@ namespace raftcpp {
 		handle_response_of_request_pre_vote,
 		handle_response_of_request_vote,
 		handle_response_of_request_heartbeat,
+		handle_response_of_append_entry,
 
 		broadcast_request_vote,
 		broadcast_request_heartbeat,
 
 		active_num,
-
-		pre_vote,
-		vote,
-		for_test,
-		for_test1,
 	};
 	constexpr MessageKey msg_restart_election_timer = MessageKey::restart_election_timer;
 	constexpr MessageKey msg_election_timeout = MessageKey::election_timeout;
@@ -76,11 +79,13 @@ namespace raftcpp {
 	constexpr MessageKey msg_handle_response_of_request_pre_vote = MessageKey::handle_response_of_request_pre_vote;
 	constexpr MessageKey msg_handle_response_of_request_vote = MessageKey::handle_response_of_request_vote;
 	constexpr MessageKey msg_handle_response_of_request_heartbeat = MessageKey::handle_response_of_request_heartbeat;
+	constexpr MessageKey msg_handle_response_of_append_entry = MessageKey::handle_response_of_append_entry;
 
 	constexpr MessageKey msg_active_num = MessageKey::active_num;
 
-	constexpr MessageKey msg_pre_vote = MessageKey::pre_vote;
-	constexpr MessageKey msg_vote = MessageKey::vote;
-	constexpr MessageKey for_test = MessageKey::for_test;
-	constexpr MessageKey for_test1 = MessageKey::for_test1;
+	std::mutex g_print_mtx;
+	void print(std::string str) {
+		std::unique_lock<std::mutex> lock(g_print_mtx);
+		std::cout << str;
+	}
 }

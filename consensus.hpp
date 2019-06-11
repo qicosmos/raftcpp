@@ -5,13 +5,15 @@
 #include "entity.h"
 #include "common.h"
 #include "message_bus.hpp"
+#include "mem_log.hpp"
 
 namespace raftcpp {
 	static std::default_random_engine g_generator;
 
 	class consensus {
 	public:
-		consensus(int host_id, int peers_num) : host_id_(host_id), peers_num_(peers_num), bus_(message_bus::get()) {
+		consensus(int host_id, int peers_num) : host_id_(host_id), peers_num_(peers_num), 
+			bus_(message_bus::get()), log_(mem_log_t::get()) {
 			init();
 		}
 
@@ -27,6 +29,7 @@ namespace raftcpp {
 
 			bus_.subscribe<msg_handle_response_of_request_vote>(&consensus::handle_response_of_request_vote, this);
 			bus_.subscribe<msg_handle_response_of_request_heartbeat>(&consensus::handle_response_of_request_heartbeat, this);
+			bus_.subscribe<msg_handle_response_of_append_entry>(&consensus::handle_response_of_append_entry, this);
 
 			state_ = State::FOLLOWER;
 			print("start pre_vote timer\n");
@@ -47,8 +50,18 @@ namespace raftcpp {
 				return vote;
 			}
 
-			//todo  for log index
-			vote.vote_granted = true;
+			auto last_index = log_.last_index();
+			auto last_term = log_.get_term(last_index);
+			bool log_ok = (args.last_log_term > last_term ||
+				args.last_log_term == last_term &&
+				args.last_log_idx >= last_index);
+			if (!log_ok) {
+				vote.vote_granted = false;
+			}
+			else {
+				vote.vote_granted = true;
+			}
+
 			return vote;
 		}
 
@@ -73,14 +86,19 @@ namespace raftcpp {
 					break;
 				}
 
-				if ((vote_for_ == -1|| vote_for_==args.from) && args.last_log_idx >= last_log_idx_) {
+				if (vote_for_ == -1|| vote_for_==args.from) {
 					vote_for_ = args.from;
 					vote.vote_granted = true;
 					step_down_follower(args.term);
 				}
 
-				//todo member changed
-				//log
+				auto last_index = log_.last_index();
+				auto last_term = log_.get_term(last_index);
+				bool log_ok = (args.last_log_term > last_term ||
+					args.last_log_term == last_term &&
+					args.last_log_idx >= last_index);
+				if (!log_ok)
+					vote.vote_granted = false;
 			} while (0);
 
 			vote.term = current_term_;
@@ -116,10 +134,62 @@ namespace raftcpp {
 		}
 
 		res_append_entry append_entry(req_append_entry args) {
-			//todo log/progress
-			return {};
+			std::cout << "enter append_entry" << std::endl;
+			//std::cout << "node {id =" << host_id_ << "} handle append entry request from node { id=" << args.from << "}\n";
+			//req_id---log_index in map 
+			res_append_entry res;
+			res.term = current_term_;
+			res.from = host_id_;
+
+			if (args.term > current_term_) {
+				step_down_follower(args.term);
+				reset_leader_id(args.from);
+			}
+
+			res.term = current_term_;
+			if (args.prev_log_index < leader_commit_index_) {
+				res.last_log_index = leader_commit_index_;
+				return res;
+			}
+			if (args.prev_log_term != log_.get_term(args.prev_log_index)) {
+				res.reject_hint = log_.last_index();
+				return res;
+			}
+			uint64_t conflict_index = log_.find_conflict(args.entries);
+			if (conflict_index == 0) {
+				res.reject = true;
+				res.reject_hint = log_.last_index();
+				return res;
+			}
+			else {
+				assert(conflict_index > leader_commit_index_);
+
+				auto pos = std::find_if(args.entries.begin(), args.entries.end(), [conflict_index](const entry_t& e) {return e.index == conflict_index; });
+				std::vector<entry_t> v(pos, args.entries.end());
+				log_.append_may_truncate(v);
+			}
+			leader_commit_index_ = std::min(args.leader_commit_index, log_.last_index());
+			res.last_log_index = log_.last_index();
+			res.reject = false;
+			return res;
 		}
 		/********** rpc service end *********/
+
+		State state() {
+			return state_;
+		}
+
+		uint64_t commit_index() {
+			return leader_commit_index_;
+		}
+
+		uint64_t current_term() {
+			return current_term_;
+		}
+
+		void set_commit_index(uint64_t comm_idx) {
+			leader_commit_index_ = comm_idx;
+		}
 
 		void restart_election_timer(int timeout) {
 			election_timeout_ = false;
@@ -143,7 +213,7 @@ namespace raftcpp {
 		void pre_vote() {
 			request_vote_t vote{};
 			vote.term = current_term_ + 1;
-			vote.last_log_idx = 0;//todo, should from logs
+			vote.last_log_idx = log_.last_index();
 
 			start_vote(true);
 			print("start pre_vote timer\n");
@@ -233,8 +303,12 @@ namespace raftcpp {
 			handle_majority(*counter, is_pre_vote);
 		}
 
-		void handle_response_of_request_heartbeat(res_append_entry resp_entry) {
+		void handle_response_of_request_heartbeat(res_heartbeat resp_entry) {
 			//todo progress
+		}
+
+		void handle_response_of_append_entry() {
+
 		}
 
 		void handle_majority(int count, bool is_pre_vote) {
@@ -268,7 +342,7 @@ namespace raftcpp {
 			entry.from = host_id_;
 			entry.term = current_term_;
 			entry.leader_commit_index = leader_commit_index_;
-			//entry.prev_log_index = 
+			//entry.prev_log_index = todo
 			//entry.prev_log_term = 
 
 			bus_.send_msg<msg_broadcast_request_heartbeat>(entry);
@@ -321,6 +395,7 @@ namespace raftcpp {
 		int host_id_;
 		int peers_num_ = 0;
 		message_bus& bus_;
+		mem_log_t& log_;
 		std::mutex mtx_;
 	};
 }

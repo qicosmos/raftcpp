@@ -5,18 +5,15 @@ using namespace rest_rpc;
 using namespace rpc_service;
 #include "common.h"
 #include "message_bus.hpp"
+#include "mem_log.hpp"
+#include "consensus.hpp"
 
 namespace raftcpp {
-	std::mutex g_print_mtx;
-	void print(std::string str) {
-		std::unique_lock<std::mutex> lock(g_print_mtx);
-		std::cout << str;
-	}
-
 	class nodes_t {
 	public:
-		nodes_t(const address& host, std::vector<address> peers, size_t thrd_num = 1) : current_peer_(host.port, thrd_num, 0),
-			host_addr_(host), peers_addr_(std::move(peers)), bus_(message_bus::get()) {
+		nodes_t(const address& host, std::vector<address> peers, consensus& cons, size_t thrd_num = 1) :
+			current_peer_(host.port, thrd_num, 0), host_addr_(host), cons_(cons),
+			peers_addr_(std::move(peers)), bus_(message_bus::get()) {
 			current_peer_.register_handler("request_vote", &nodes_t::request_vote, this);
 			current_peer_.register_handler("append_entry", &nodes_t::append_entry, this);
 			current_peer_.register_handler("pre_request_vote", &nodes_t::pre_request_vote, this);
@@ -48,6 +45,16 @@ namespace raftcpp {
 				}
 
 				peers_.push_back(peer);
+
+				std::thread thd([this, &addr, &peer] {
+					std::unique_lock<std::mutex> lock_guard(mtx_);
+					state_changed_.wait(lock_guard, [this, &addr, &peer] {
+						return peer->has_connected()&& cons_.state() ==State::LEADER&&addr.progress.match<mem_log_t::get().last_index();
+					});
+
+					send_entries(peer, addr);
+				});
+				thd.detach();
 			}
 
 			return connected_num;
@@ -68,6 +75,102 @@ namespace raftcpp {
 		res_append_entry append_entry(rpc_conn conn, req_append_entry args) {
 			//todo log/progress
 			return bus_.send_msg<msg_append_entry, res_append_entry>(args);
+		}
+
+		int add(rpc_conn conn, int a, int b) {
+			//先做异常恢复处理 TODO
+			/*
+			req_id---log_index from map
+			entry = get_log(req_id)
+			commit
+			apply
+			response
+			*/
+
+			//to string
+			//append log
+			//wait for majority commit
+			//wait for apply
+			//response
+		}
+
+		void send_entries(std::shared_ptr<rpc_client>& peer, address& addr) {
+			//todo progress
+			auto& log = mem_log_t::get();
+			auto& pr = addr.progress;
+			if (!pr.pause && pr.match < log.last_index()) {
+				//LOG_INFO << "node {id=" << host_addr_.host_id << "} start send entries to node{id=" << addr.host_id << "}";
+				std::cout << "should start append entries to (" << addr.host_id << "," << addr.ip << "," << addr.port << ")" << "\n";
+				req_append_entry req;
+				req.term = cons_.current_term();// current_term();
+				req.leader_commit_index = cons_.commit_index();//commit_index();
+
+				req.from = host_addr_.host_id;
+				req.prev_log_index = pr.match;
+				req.prev_log_term = log.get_term(req.prev_log_index);
+				req.entries = std::move(log.get_entries(pr.next));
+				if (req.entries.empty())
+					return;
+				pr.pause = true;
+				peer->async_call<100000>("append_entry", [this, &pr, &peer, &addr](boost::system::error_code ec, string_view data) {
+					if (ec) {
+						//timeout 
+						//todo
+						std::cout << "async call append_entry timeout!" << std::endl;
+						return;
+					}
+					try {
+
+						auto res_append = as<res_append_entry>(data);
+						/*LOG_INFO << "receive append entries response from node{id=" << addr.host_id << "}, with reject=" << res_append.reject
+							<< ",reject_hint=" << res_append.reject_hint << ",last_log_index=" << res_append.last_log_index;*/
+						if (res_append.reject) {
+							if (res_append.reject_hint > pr.match) {
+								pr.match = res_append.reject_hint;
+							}
+							if (res_append.reject_hint + 1 > pr.next) {
+								pr.next = res_append.reject_hint + 1;
+							}
+							pr.pause = false;
+							send_entries(peer, addr);
+							//TODO send entry again
+						}
+						else {
+							if (res_append.last_log_index > pr.match) {
+								pr.match = res_append.last_log_index;
+							}
+							if (res_append.last_log_index + 1 > pr.next) {
+								pr.next = res_append.last_log_index + 1;
+							}
+							//LOG_INFO << "try to update commit index";
+							advance_commit();
+							pr.pause = false;
+						}
+					}
+					catch (std::exception& e) {
+						std::cout << "append entry got exception:" << e.what()<<'\n';
+					}
+
+				}, req);
+			}
+		}
+
+		void advance_commit() {
+			std::unique_lock<std::mutex> lock_guard(mtx_);
+			if (cons_.state() != State::LEADER)
+				return;
+			std::vector<uint64_t> vec;
+			for (auto& it : peers_addr_) {
+				vec.push_back(it.progress.match);
+			}
+			std::sort(vec.begin(), vec.end());
+			auto new_commit_index = vec[(vec.size() - 1) / 2];
+
+			if (new_commit_index > cons_.commit_index()) {
+				//LOG_INFO << "update commit index from " << commit_index() << " to " << new_commit_index;
+				cons_.set_commit_index(new_commit_index);
+				state_changed_.notify_all();
+			}
 		}
 
 		void broadcast_request_vote(bool is_pre_vote, uint64_t term, std::shared_ptr<int> counter, request_vote_t vote) {
@@ -102,7 +205,7 @@ namespace raftcpp {
 						return;
 					}
 
-					res_append_entry resp_entry = as<res_append_entry>(data);
+					res_heartbeat resp_entry = as<res_heartbeat>(data);
 					bus_.send_msg<msg_handle_response_of_request_heartbeat>(resp_entry);
 				}, entry);
 			}
@@ -124,7 +227,13 @@ namespace raftcpp {
 		address host_addr_;
 		std::vector<address> peers_addr_;
 
+		consensus& cons_;
+
 		std::vector<std::shared_ptr<rpc_client>> peers_;
 		message_bus& bus_;
+
+		std::mutex mtx_;
+		std::condition_variable state_changed_;
+		bool stop_check_ = false;
 	};
 }
