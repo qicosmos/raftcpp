@@ -62,11 +62,11 @@ namespace raftcpp {
 	};
 
 	struct res_append_entry {
-		int from;
-		uint64_t term;
-		bool reject;
-		uint64_t last_log_index;
-		uint64_t reject_hint; //the position of log rejecting
+		int from = 0;
+		uint64_t term = 0;
+		bool reject = false;
+		uint64_t last_log_index = 0;
+		uint64_t reject_hint =0 ; //the position of log rejecting
 		MSGPACK_DEFINE(from, term, reject, last_log_index, reject_hint);
 	};
 
@@ -81,5 +81,9 @@ namespace raftcpp {
 		int from;
 		uint64_t term;
 		MSGPACK_DEFINE(from, term);
+	};
+
+	enum entry_type {
+		entry_type_data= 1,
 	};
 }

@@ -5,6 +5,7 @@
 #include "timer.hpp"
 #include "nodes.hpp"
 #include "consensus.hpp"
+#include "NanoLog.hpp"
 using namespace raftcpp;
 
 struct person {
@@ -17,6 +18,12 @@ struct person {
 	}
 	int id = 0;
 };
+
+void init_nano_log(int num) {
+	std::string file_name = "node_" + std::to_string(num) + ".txt";
+	nanolog::Logger::initialize(nanolog::GuaranteedLogger(), ".", file_name, 1);
+	nanolog::Logger::set_log_level(nanolog::LogLevel::INFO);
+}
 
 template<typename T>
 void foo(T t) {
@@ -60,6 +67,7 @@ void test_msg_bus() {
 }
 
 int main() {
+	
 	//test_msg_bus();
 	config conf{ {{"127.0.0.1", 9000, 0}, {"127.0.0.1", 9001, 1}, {"127.0.0.1", 9002, 2}} };
 	address host{};
@@ -83,6 +91,7 @@ int main() {
 			host = *it;
 			conf.peers_addr.erase(it);
 			peers = std::move(conf.peers_addr);
+			init_nano_log(host.host_id);
 			break;
 		}
 	}

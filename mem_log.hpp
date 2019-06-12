@@ -1,6 +1,7 @@
 #pragma once
 #include "entity.h"
-
+#include "NanoLog.hpp"
+#include "cond.h"
 namespace raftcpp {
 	class mem_log_t {
 	public:
@@ -10,6 +11,7 @@ namespace raftcpp {
 		}
 
 		std::pair<uint64_t, uint64_t> append_may_truncate(const std::vector<entry_t>& new_entries) {
+		
 			if (new_entries.empty()) {
 				return { last_index(),last_index() };
 			}
@@ -17,27 +19,33 @@ namespace raftcpp {
 			assert(first_index <= last_index() + 1);
 			if (first_index == last_index() + 1) {
 				entries_.insert(entries_.end(), new_entries.begin(), new_entries.end());
+				state_changed_.notify_all();
 				return { last_index() - new_entries.size() + 1,last_index() };
 			}
 			if (first_index <= entries_.front().index) {
 				entries_.clear();
 				entries_.insert(entries_.begin(), new_entries.begin(), new_entries.end());
+				state_changed_.notify_all();
 				return { last_index() - new_entries.size() + 1,last_index() };
 			}
 			auto pos = std::find_if(entries_.begin(), entries_.end(), [first_index](const entry_t& entry) {return entry.index == first_index; });
 			entries_.erase(pos, entries_.end());
 			entries_.insert(entries_.end(), new_entries.begin(), new_entries.end());
+			state_changed_.notify_all();
 			return { last_index() - new_entries.size() + 1,last_index() };
 		}
 
 		std::pair<uint64_t, uint64_t> append(const std::vector<const entry_t* >& new_entries) {
+		
 			if (new_entries.empty()) {
 				return { last_index(),last_index() };
 			}
 			for (auto it : new_entries) {
 				entries_.push_back(*it);
 			}
-			//LOG_INFO << "after append entries, first_index=" << last_index() - new_entries.size() + 1 << ",last_index=" << last_index();
+			LOG_INFO << "after append entries, first_index=" << last_index() - new_entries.size() + 1 << ",last_index=" << last_index();
+			
+			state_changed_.notify_all();
 			return { last_index() - new_entries.size() + 1,last_index() };
 		}
 		std::pair<uint64_t, uint64_t> append(std::vector<entry_t>& new_entries) {
@@ -46,7 +54,8 @@ namespace raftcpp {
 			for (auto it : new_entries) {
 				entries_.push_back(it);
 			}
-			//LOG_INFO << "after append entries, first_index=" << first_index << ",last_index=" << last_index;
+			LOG_INFO << "after append entries, first_index=" << first_index << ",last_index=" << last_index;
+			state_changed_.notify_all();
 			return { first_index,last_index };
 		}
 
@@ -54,7 +63,7 @@ namespace raftcpp {
 			for (auto& ent : entries) {
 				if (ent.term != get_term(ent.index)) {
 					if (ent.index <= last_index()) {
-						//LOG_INFO << "will cover some entries from:" << ent.index << "\n";
+						LOG_INFO << "will cover some entries from:" << ent.index << "\n";
 					}
 					return ent.index;
 				}

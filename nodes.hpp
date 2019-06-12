@@ -7,6 +7,8 @@ using namespace rpc_service;
 #include "message_bus.hpp"
 #include "mem_log.hpp"
 #include "consensus.hpp"
+#include "cond.h"
+#include "NanoLog.hpp"
 
 namespace raftcpp {
 	class nodes_t {
@@ -28,6 +30,8 @@ namespace raftcpp {
 		int connect_peers(size_t timeout = 10) {
 			int connected_num = 0;
 			for (auto& addr : peers_addr_) {
+				if(addr.host_id==host_addr_.host_id)
+					continue;
 				auto peer = std::make_shared<rpc_client>(addr.ip, addr.port);
 				peer->set_connect_timeout(50);
 				peer->set_error_callback([this, peer](boost::system::error_code ec) {
@@ -46,13 +50,15 @@ namespace raftcpp {
 
 				peers_.push_back(peer);
 
-				std::thread thd([this, &addr, &peer] {
-					std::unique_lock<std::mutex> lock_guard(mtx_);
-					state_changed_.wait(lock_guard, [this, &addr, &peer] {
-						return peer->has_connected()&& cons_.state() ==State::LEADER&&addr.progress.match<mem_log_t::get().last_index();
-					});
+				std::thread thd([this, &addr, peer] {
+					while (true) {
+						std::unique_lock<std::mutex> lock_guard(mtx_);
+						state_changed_.wait(lock_guard, [this, &addr, peer] {
+							return peer->has_connected() && cons_.state() == State::LEADER && addr.progress.match < mem_log_t::get().last_index();
+							});
 
-					send_entries(peer, addr);
+						send_entries(peer, addr);
+					}
 				});
 				thd.detach();
 			}
@@ -86,7 +92,18 @@ namespace raftcpp {
 			apply
 			response
 			*/
-
+			auto conn_sp = conn.lock();
+			if (conn_sp) {
+				const std::vector<char>& body = conn_sp->body();
+				std::string data = std::string(body.begin(), body.end());
+				auto result = cons_.replicate(std::move(data));
+				if (result) {
+					auto apply_result = cons_.wait_apply();
+					if (apply_result) {
+						return 2;
+					}
+				}
+			}
 			//to string
 			//append log
 			//wait for majority commit
@@ -94,12 +111,13 @@ namespace raftcpp {
 			//response
 		}
 
-		void send_entries(std::shared_ptr<rpc_client>& peer, address& addr) {
+
+		void send_entries(std::shared_ptr<rpc_client> peer, address& addr) {
 			//todo progress
 			auto& log = mem_log_t::get();
 			auto& pr = addr.progress;
 			if (!pr.pause && pr.match < log.last_index()) {
-				//LOG_INFO << "node {id=" << host_addr_.host_id << "} start send entries to node{id=" << addr.host_id << "}";
+				LOG_INFO << "node {id=" << host_addr_.host_id << "} start send entries to node{id=" << addr.host_id << "}";
 				std::cout << "should start append entries to (" << addr.host_id << "," << addr.ip << "," << addr.port << ")" << "\n";
 				req_append_entry req;
 				req.term = cons_.current_term();// current_term();
@@ -122,8 +140,8 @@ namespace raftcpp {
 					try {
 
 						auto res_append = as<res_append_entry>(data);
-						/*LOG_INFO << "receive append entries response from node{id=" << addr.host_id << "}, with reject=" << res_append.reject
-							<< ",reject_hint=" << res_append.reject_hint << ",last_log_index=" << res_append.last_log_index;*/
+						LOG_INFO << "receive append entries response from node{id=" << addr.host_id << "}, with reject=" << res_append.reject
+							<< ",reject_hint=" << res_append.reject_hint << ",last_log_index=" << res_append.last_log_index;
 						if (res_append.reject) {
 							if (res_append.reject_hint > pr.match) {
 								pr.match = res_append.reject_hint;
@@ -142,7 +160,7 @@ namespace raftcpp {
 							if (res_append.last_log_index + 1 > pr.next) {
 								pr.next = res_append.last_log_index + 1;
 							}
-							//LOG_INFO << "try to update commit index";
+							LOG_INFO << "try to update commit index";
 							advance_commit();
 							pr.pause = false;
 						}
@@ -161,13 +179,16 @@ namespace raftcpp {
 				return;
 			std::vector<uint64_t> vec;
 			for (auto& it : peers_addr_) {
+				if(it.host_id==host_addr_.host_id)
+					continue;
 				vec.push_back(it.progress.match);
 			}
+			vec.push_back(mem_log_t::get().last_index());
 			std::sort(vec.begin(), vec.end());
 			auto new_commit_index = vec[(vec.size() - 1) / 2];
 
 			if (new_commit_index > cons_.commit_index()) {
-				//LOG_INFO << "update commit index from " << commit_index() << " to " << new_commit_index;
+				LOG_INFO << "update commit index from " << cons_.commit_index() << " to " << new_commit_index;
 				cons_.set_commit_index(new_commit_index);
 				state_changed_.notify_all();
 			}
@@ -193,11 +214,12 @@ namespace raftcpp {
 			}
 		}
 
-		void broadcast_request_heartbeat(req_append_entry entry) {
+		void broadcast_request_heartbeat(req_heartbeat req) {
 			for (auto& peer : peers_) {
 				if (!peer->has_connected())
 					continue;
 				print("send heartbeat\n");
+				req.leader_commit_index = cons_.commit_index();
 				peer->async_call("heartbeat", [this](boost::system::error_code ec, string_view data) {
 					if (ec) {
 						//timeout 
@@ -207,7 +229,7 @@ namespace raftcpp {
 
 					res_heartbeat resp_entry = as<res_heartbeat>(data);
 					bus_.send_msg<msg_handle_response_of_request_heartbeat>(resp_entry);
-				}, entry);
+				}, req);
 			}
 		}
 
@@ -232,8 +254,8 @@ namespace raftcpp {
 		std::vector<std::shared_ptr<rpc_client>> peers_;
 		message_bus& bus_;
 
-		std::mutex mtx_;
-		std::condition_variable state_changed_;
+		
+		
 		bool stop_check_ = false;
 	};
 }
