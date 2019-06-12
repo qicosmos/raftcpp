@@ -20,6 +20,7 @@ namespace raftcpp {
 			current_peer_.register_handler("append_entry", &nodes_t::append_entry, this);
 			current_peer_.register_handler("pre_request_vote", &nodes_t::pre_request_vote, this);
 			current_peer_.register_handler("heartbeat", &nodes_t::heartbeat, this);
+			current_peer_.register_handler("add", &nodes_t::add, this);
 			current_peer_.async_run();
 
 			bus_.subscribe<msg_broadcast_request_vote>(&nodes_t::broadcast_request_vote, this);
@@ -93,17 +94,16 @@ namespace raftcpp {
 			response
 			*/
 			auto conn_sp = conn.lock();
-			if (conn_sp) {
-				const std::vector<char>& body = conn_sp->body();
-				std::string data = std::string(body.begin(), body.end());
-				auto result = cons_.replicate(std::move(data));
-				if (result) {
-					auto apply_result = cons_.wait_apply();
-					if (apply_result) {
-						return 2;
-					}
-				}
-			}
+			const std::vector<char>& body = conn_sp->body();
+			std::string data = std::string(body.begin(), body.end());
+			cons_.replicate(std::move(data));
+			
+			cons_.wait_apply();
+			
+			return 2;
+			
+				
+			
 			//to string
 			//append log
 			//wait for majority commit
