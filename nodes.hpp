@@ -193,11 +193,13 @@ namespace raftcpp {
 			}
 		}
 
-		void broadcast_request_heartbeat(req_append_entry entry) {
+		void broadcast_request_heartbeat(req_heartbeat entry) {
 			for (auto& peer : peers_) {
 				if (!peer->has_connected())
 					continue;
 				print("send heartbeat\n");
+				entry.leader_commit_index = cons_.commit_index();
+				entry.from = cons_.leader_id();
 				peer->async_call("heartbeat", [this](boost::system::error_code ec, string_view data) {
 					if (ec) {
 						//timeout 

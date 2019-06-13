@@ -116,7 +116,7 @@ namespace raftcpp {
 			if (state_ == State::FOLLOWER) {
 				reset_leader_id(args.from);
 				current_term_ = args.term;
-				leader_commit_index_ = args.leader_commit_index;				
+				leader_commit_index_ = std::min(args.leader_commit_index, mem_log_t::get().last_index());
 				hb.term = current_term_;
 				print("start pre_vote timer\n");
 				restart_election_timer(random_election());
@@ -125,7 +125,7 @@ namespace raftcpp {
 			else if (state_ == State::CANDIDATE) {
 				step_down_follower(current_term_);
 				reset_leader_id(args.from);
-				leader_commit_index_ = args.leader_commit_index;
+				leader_commit_index_ = std::min(args.leader_commit_index, mem_log_t::get().last_index());
 				hb.term = current_term_;
 				return hb;
 			}
@@ -338,7 +338,7 @@ namespace raftcpp {
 
 		void start_heartbeat() {
 			std::unique_lock<std::mutex> lock(mtx_);
-			req_append_entry entry{};
+			req_heartbeat entry{};
 			entry.from = host_id_;
 			entry.term = current_term_;
 			entry.leader_commit_index = leader_commit_index_;
@@ -380,6 +380,10 @@ namespace raftcpp {
 
 		int random_election() {
 			return ELECTION_TIMEOUT + rand(ELECTION_TIMEOUT);
+		}
+
+		int leader_id() {
+			return leader_id_;
 		}
 
 	private:
