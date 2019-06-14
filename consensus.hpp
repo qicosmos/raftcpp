@@ -245,8 +245,8 @@ namespace raftcpp {
 			request_vote_t vote{};
 			uint64_t term = current_term_;
 			vote.term = current_term_;
-			vote.last_log_idx = last_log_idx_;
-			vote.last_log_term = last_log_term_;
+			vote.last_log_idx = log_.last_index(); 
+			vote.last_log_term = log_.get_term(vote.last_log_idx);
 			vote.from = host_id_;
 
 			bus_.send_msg<msg_broadcast_request_vote>(is_pre_vote, term, counter, vote);
@@ -390,8 +390,6 @@ namespace raftcpp {
 		State state_;
 		int leader_id_ = -1;
 		uint64_t current_term_ = 0;
-		uint64_t last_log_idx_ = 0;
-		uint64_t last_log_term_ = 0;
 		uint64_t leader_commit_index_ = 0;
 		int vote_for_ = -1;
 		bool election_timeout_ = false;
