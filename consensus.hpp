@@ -203,7 +203,7 @@ namespace raftcpp {
 				auto pos = std::find_if(args.entries.begin(), args.entries.end(), [conflict_index](const entry_t & e) {return e.index == conflict_index; });
 				std::vector<entry_t> v(pos, args.entries.end());
 				log_.append_may_truncate(v);
-				update_req_log_map(log_.all_entries());
+				//update_req_log_map(log_.all_entries());
 			}
 			leader_commit_index_ = std::min(args.leader_commit_index, log_.last_index());
 			res.last_log_index = log_.last_index();
@@ -378,7 +378,8 @@ namespace raftcpp {
 			bus_.send_msg<msg_restart_heartbeat_timer>();
 			//append empty entry
 			entry_t entry;
-			entry.type = entry_type::entry_type_data;
+			//entry.type = entry_type::entry_type_data;
+			entry.type = entry_type::entry_type_none;
 			entry.index = log_.last_index() + 1;
 			entry.term = current_term_;
 			log_.append({ &entry });
@@ -430,10 +431,10 @@ namespace raftcpp {
 			return ELECTION_TIMEOUT + rand(ELECTION_TIMEOUT);
 		}
 
-		bool replicate(uint64_t req_id,std::string && data) {
+		bool replicate(std::string && data) {
 			std::unique_lock<std::mutex> lock_guard(mtx_);
 			entry_t entry;
-			entry.req_id = req_id;
+			//entry.req_id = req_id;
 			entry.type = entry_type::entry_type_data;
 			entry.term = current_term_;
 			entry.index = log_.last_index() + 1;
@@ -443,10 +444,8 @@ namespace raftcpp {
 				return false;
 			}
 				
-			req_log_map_[req_id] = entry.index;
-			log_.append({ &entry });
-			//just for test
-			
+			//req_log_map_[req_id] = entry.index;
+			log_.append({ &entry });						
 			uint64_t index = log_.last_index();
 			while (current_term_ == entry.term) {
 				state_changed_.wait(lock_guard, [index, this]() {

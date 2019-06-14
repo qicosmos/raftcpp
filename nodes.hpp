@@ -111,45 +111,11 @@ namespace raftcpp {
 			response
 			*/
 			LOG_INFO << "enter rpc add================";
-			auto req_id = conn.lock()->request_id();
-			if (cons_.req_log_map().find(req_id) != cons_.req_log_map().end()) {
-				auto log_index = cons_.req_log_map()[req_id];
-				if (log_index >= cons_.applied_index()) {
-					LOG_INFO << "return from pos 1";
-					return 2;
-				}
-				else if (log_index >= cons_.commit_index()) {
-					{
-						std::unique_lock<std::mutex> lock_guard(mtx_);
-						state_changed_.wait(lock_guard, [log_index, this]() {
-							return this->cons_.applied_index() >= log_index;
-							});
-					}
-					LOG_INFO << "return from pos 2";
-					return 2;
-				}
-				else {
-					{
-						std::unique_lock<std::mutex> lock_guard(mtx_);
-						state_changed_.wait(lock_guard, [log_index, this]() {
-							return this->cons_.commit_index() >= log_index;
-							});
-					}
-					{
-						std::unique_lock<std::mutex> lock_guard(mtx_);
-						state_changed_.wait(lock_guard, [log_index, this]() {
-							return this->cons_.applied_index() >= log_index;
-							});
-					}
-					LOG_INFO << "return from pos 3";
-					return 2;
-				}
-			}
-			else {
+	
 				auto conn_sp = conn.lock();
 				const std::vector<char>& body = conn_sp->body();
 				std::string data = std::string(body.begin(), body.end());
-				if (!cons_.replicate(req_id, std::move(data))) {
+				if (!cons_.replicate(std::move(data))) {
 					LOG_INFO << "return from pos 4";
 					return -1;
 				}
@@ -157,8 +123,6 @@ namespace raftcpp {
 				cons_.wait_apply();
 				LOG_INFO << "return from pos 5";
 				return 2;
-
-			}
 
 
 

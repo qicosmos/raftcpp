@@ -13,7 +13,12 @@ namespace raftcpp {
 		
 		bool apply(const entry_t& e) {
 			//TODO
-
+			if (e.type == entry_type::entry_type_none)
+				return true;
+			if (e.type == entry_type::entry_type_data) {
+				//TODO 
+				return true;
+			}
 			return true;
 		}
 

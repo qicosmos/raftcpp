@@ -54,23 +54,6 @@ void try_find_leader(std::shared_ptr<rpc_client> peer) {
 	}
 }
 
-void send_add_request(std::shared_ptr<rpc_client> peer) {
-	//std::default_random_engine engine;
-	//std::uniform_int_distribution<unsigned> u(0, conf.peers_addr.size());
-	
-	try_find_leader(peer);
-	auto ret = peer->async_call<10000>("add", [peer](auto ec, auto data, auto req_id) {
-		if (ec) {
-			std::cout << "add error" << std::endl;
-
-			return;
-		}
-
-		int result = as<int>(data);
-		std::cout << "result=" << result << std::endl;
-		}, 1, 2);
-	g_req_body_map.insert({ ret.first,ret.second});
-}
 
 bool reconnect_leader(std::shared_ptr<rpc_client> peer,uint64_t leader_id) {
 	assert(leader_id >= 0 && leader_id <= conf.peers_addr.size() - 1);
@@ -160,67 +143,6 @@ step:
 	peer->close();
 	std::this_thread::sleep_for(std::chrono::seconds(1));
 	goto step;
-	//leader down
-/*
-	peer->close();
-	
-	auto new_index = leader_id;
-	do { new_index = rd()%conf.peers_addr.size(); } while (new_index ==leader_id);
-	assert(new_index >= 0 && new_index <= conf.peers_addr.size() - 1);
-	peer->update_addr(conf.peers_addr[new_index].ip, conf.peers_addr[new_index].port);
 
-	auto original_index = rd() % conf.peers_addr.size();
-	std::cout << "random server id: " << original_index << std::endl;;
-	std::cout << "will connect to ip = " << conf.peers_addr[original_index].ip << ", port = " << conf.peers_addr[original_index].port << std::endl;
-	peer->update_addr(conf.peers_addr[original_index].ip, conf.peers_addr[original_index].port);
-
-	peer->set_error_callback([peer,  &rd](auto ec) {
-		if (ec) {
-		
-			std::this_thread::sleep_for(std::chrono::milliseconds(200));
-			uint64_t new_index = 0;
-			do { new_index = rd() % conf.peers_addr.size(); } while (new_index == leader_id);
-			assert(new_index >= 0 && new_index <= 2);
-			peer->update_addr(conf.peers_addr[new_index].ip, conf.peers_addr[new_index].port);
-			peer->async_connect();
-			bool r = peer->connect(3);
-			if (!r) {
-				std::cout << "connect failed!" << std::endl;
-				return;
-			}
-			try_find_leader(peer);
-			if (!g_req_body_map.empty()) {
-				for (auto m : g_req_body_map) {
-					auto req_id = m.first;
-					auto body = m.second;
-					peer->re_call<10000>(req_id, "add", [peer](auto ec, auto data, auto req_id) {
-						if (ec) {
-						}
-						if (g_req_body_map.find(req_id) != g_req_body_map.end()) {
-							g_req_body_map.erase(g_req_body_map.find(req_id));
-						}
-						int result = as<int>(data);
-						std::cout << "result=" << std::endl;
-						}, body);
-				}
-			}
-			
-			peer->async_reconnect();//normal
-		}
-		});
-	bool r = peer->connect(3);
-	if (!r) {
-		std::cout << "connect failed!" << std::endl;
-		return -1;
-	}
-	while (true) {
-		std::cout << "enter 1 to start a request to leader;" << '\n';
-		cin >> start;
-		if (start == 1) {
-			send_add_request(peer);
-		}
-		std::this_thread::sleep_for(std::chrono::seconds(1));
-	}
-	*/
 	return 0;
 }

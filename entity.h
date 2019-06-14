@@ -91,6 +91,7 @@ namespace raftcpp {
 
 	enum entry_type {
 		entry_type_data= 1,
+		entry_type_none= 2,
 	};
 
 	struct ask_leader_req{};
