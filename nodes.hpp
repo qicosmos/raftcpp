@@ -21,17 +21,19 @@ namespace raftcpp {
 			current_peer_.register_handler("pre_request_vote", &nodes_t::pre_request_vote, this);
 			current_peer_.register_handler("heartbeat", &nodes_t::heartbeat, this);
 			current_peer_.register_handler("add", &nodes_t::add, this);
+			current_peer_.register_handler("ask_leader", &nodes_t::ask_leader, this);
 			current_peer_.async_run();
 
 			bus_.subscribe<msg_broadcast_request_vote>(&nodes_t::broadcast_request_vote, this);
 			bus_.subscribe<msg_broadcast_request_heartbeat>(&nodes_t::broadcast_request_heartbeat, this);
+
 			bus_.subscribe<msg_active_num>(&nodes_t::active_num, this);
 		}
 
 		int connect_peers(size_t timeout = 10) {
 			int connected_num = 0;
 			for (auto& addr : peers_addr_) {
-				if(addr.host_id==host_addr_.host_id)
+				if (addr.host_id == host_addr_.host_id)
 					continue;
 				auto peer = std::make_shared<rpc_client>(addr.ip, addr.port);
 				peer->set_connect_timeout(50);
@@ -39,7 +41,7 @@ namespace raftcpp {
 					if (ec) {
 						peer->async_reconnect();
 					}
-				});
+					});
 
 				bool r = peer->connect(timeout);
 				if (r) {
@@ -54,13 +56,14 @@ namespace raftcpp {
 				std::thread thd([this, &addr, peer] {
 					while (true) {
 						std::unique_lock<std::mutex> lock_guard(mtx_);
-						state_changed_.wait(lock_guard, [this, &addr, peer] {
+						bool result = state_changed_.wait_for(lock_guard,std::chrono::seconds(1), [this, &addr, peer] {
 							return peer->has_connected() && cons_.state() == State::LEADER && addr.progress.match < mem_log_t::get().last_index();
 							});
 
-						send_entries(peer, addr);
+						if(result)
+							send_entries(peer, addr);
 					}
-				});
+					});
 				thd.detach();
 			}
 
@@ -84,6 +87,20 @@ namespace raftcpp {
 			return bus_.send_msg<msg_append_entry, res_append_entry>(args);
 		}
 
+		res_ask_leader ask_leader(rpc_conn conn) {
+			res_ask_leader res;
+			if (cons_.state() == State::LEADER) {
+				res.is_leader = true;
+				res.leader_id = host_addr_.host_id;
+			}
+			else {
+				res.is_leader = false;
+				res.leader_id = cons_.leader_id();
+			}
+			return res;
+
+		}
+
 		int add(rpc_conn conn, int a, int b) {
 			//先做异常恢复处理 TODO
 			/*
@@ -93,17 +110,59 @@ namespace raftcpp {
 			apply
 			response
 			*/
-			auto conn_sp = conn.lock();
-			const std::vector<char>& body = conn_sp->body();
-			std::string data = std::string(body.begin(), body.end());
-			cons_.replicate(std::move(data));
-			
-			cons_.wait_apply();
-			
-			return 2;
-			
-				
-			
+			LOG_INFO << "enter rpc add================";
+			auto req_id = conn.lock()->request_id();
+			if (cons_.req_log_map().find(req_id) != cons_.req_log_map().end()) {
+				auto log_index = cons_.req_log_map()[req_id];
+				if (log_index >= cons_.applied_index()) {
+					LOG_INFO << "return from pos 1";
+					return 2;
+				}
+				else if (log_index >= cons_.commit_index()) {
+					{
+						std::unique_lock<std::mutex> lock_guard(mtx_);
+						state_changed_.wait(lock_guard, [log_index, this]() {
+							return this->cons_.applied_index() >= log_index;
+							});
+					}
+					LOG_INFO << "return from pos 2";
+					return 2;
+				}
+				else {
+					{
+						std::unique_lock<std::mutex> lock_guard(mtx_);
+						state_changed_.wait(lock_guard, [log_index, this]() {
+							return this->cons_.commit_index() >= log_index;
+							});
+					}
+					{
+						std::unique_lock<std::mutex> lock_guard(mtx_);
+						state_changed_.wait(lock_guard, [log_index, this]() {
+							return this->cons_.applied_index() >= log_index;
+							});
+					}
+					LOG_INFO << "return from pos 3";
+					return 2;
+				}
+			}
+			else {
+				auto conn_sp = conn.lock();
+				const std::vector<char>& body = conn_sp->body();
+				std::string data = std::string(body.begin(), body.end());
+				if (!cons_.replicate(req_id, std::move(data))) {
+					LOG_INFO << "return from pos 4";
+					return -1;
+				}
+
+				cons_.wait_apply();
+				LOG_INFO << "return from pos 5";
+				return 2;
+
+			}
+
+
+
+
 			//to string
 			//append log
 			//wait for majority commit
@@ -130,7 +189,7 @@ namespace raftcpp {
 				if (req.entries.empty())
 					return;
 				pr.pause = true;
-				peer->async_call<100000>("append_entry", [this, &pr, &peer, &addr](boost::system::error_code ec, string_view data) {
+				peer->async_call<100000>("append_entry", [this, &pr, &peer, &addr](boost::system::error_code ec, string_view data, uint64_t) {
 					if (ec) {
 						//timeout 
 						//todo
@@ -146,6 +205,7 @@ namespace raftcpp {
 							if (res_append.reject_hint > pr.match) {
 								pr.match = res_append.reject_hint;
 							}
+							
 							if (res_append.reject_hint + 1 > pr.next) {
 								pr.next = res_append.reject_hint + 1;
 							}
@@ -165,11 +225,11 @@ namespace raftcpp {
 							pr.pause = false;
 						}
 					}
-					catch (std::exception& e) {
-						std::cout << "append entry got exception:" << e.what()<<'\n';
+					catch (std::exception & e) {
+						std::cout << "append entry got exception:" << e.what() << '\n';
 					}
 
-				}, req);
+					}, req);
 			}
 		}
 
@@ -179,7 +239,7 @@ namespace raftcpp {
 				return;
 			std::vector<uint64_t> vec;
 			for (auto& it : peers_addr_) {
-				if(it.host_id==host_addr_.host_id)
+				if (it.host_id == host_addr_.host_id)
 					continue;
 				vec.push_back(it.progress.match);
 			}
@@ -200,8 +260,13 @@ namespace raftcpp {
 			for (auto& peer : peers_) {
 				if (!peer->has_connected())
 					continue;
-
-				peer->async_call(rpc_name, [this, term, counter, is_pre_vote](boost::system::error_code ec, string_view data) {
+				/*
+				vote.from = host_addr_.host_id;
+				vote.last_log_idx = mem_log_t::get().last_index();
+				vote.last_log_term = mem_log_t::get().get_term(vote.last_log_idx);
+				vote.term = cons_.current_term();
+				*/
+				peer->async_call(rpc_name, [this, term, counter, is_pre_vote](boost::system::error_code ec, string_view data, uint64_t) {
 					if (ec) {
 						//timeout
 						//todo
@@ -210,17 +275,20 @@ namespace raftcpp {
 
 					auto resp_vote = as<response_vote>(data);
 					bus_.send_msg<msg_handle_response_of_request_vote>(resp_vote, term, counter, is_pre_vote);
-				}, vote);
+					}, vote);
 			}
 		}
 
 		void broadcast_request_heartbeat(req_heartbeat req) {
+			//LOG_INFO << "broadcast_heartbeat";
 			for (auto& peer : peers_) {
 				if (!peer->has_connected())
 					continue;
 				print("send heartbeat\n");
 				req.leader_commit_index = cons_.commit_index();
-				peer->async_call("heartbeat", [this](boost::system::error_code ec, string_view data) {
+				req.from = cons_.leader_id();
+				
+				peer->async_call("heartbeat", [this](boost::system::error_code ec, string_view data, uint64_t) {
 					if (ec) {
 						//timeout 
 						//todo
@@ -229,7 +297,7 @@ namespace raftcpp {
 
 					res_heartbeat resp_entry = as<res_heartbeat>(data);
 					bus_.send_msg<msg_handle_response_of_request_heartbeat>(resp_entry);
-				}, req);
+					}, req);
 			}
 		}
 
@@ -254,8 +322,8 @@ namespace raftcpp {
 		std::vector<std::shared_ptr<rpc_client>> peers_;
 		message_bus& bus_;
 
-		
-		
+
+
 		bool stop_check_ = false;
 	};
 }

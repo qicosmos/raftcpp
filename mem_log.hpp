@@ -10,6 +10,10 @@ namespace raftcpp {
 			return instance;
 		}
 
+		const std::deque<entry_t>& all_entries() {
+			return entries_;
+		}
+
 		std::pair<uint64_t, uint64_t> append_may_truncate(const std::vector<entry_t>& new_entries) {
 		
 			if (new_entries.empty()) {

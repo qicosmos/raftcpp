@@ -9,20 +9,26 @@ namespace raftcpp {
 		CANDIDATE,
 		LEADER
 	};
+	std::unordered_map<State, std::string> state_to_string{
+		{State::FOLLOWER,"Follower"},
+		{State::CANDIDATE,"Candidate"},
+		{State::LEADER,"Leader"},
+	};
 
 	struct entry_t {
 		/** the entry's term at the point it was created */
-		uint64_t term;
+		uint64_t term = 0;
 
 		/** the entry's unique ID */
-		uint64_t index;
+		uint64_t index = 0;
 
 		/** type of entry */
-		int32_t type;
+		int32_t type ;
 
 		std::string data;
 
-		MSGPACK_DEFINE(term, index, type, data)
+		uint64_t req_id = 0;
+		MSGPACK_DEFINE(term, index, type, data,req_id)
 	};
 
 	struct request_vote_t {
@@ -86,4 +92,12 @@ namespace raftcpp {
 	enum entry_type {
 		entry_type_data= 1,
 	};
+
+	struct ask_leader_req{};
+	struct res_ask_leader{
+		bool is_leader = false;
+		int64_t leader_id = -1;
+		MSGPACK_DEFINE(is_leader, leader_id);
+	};
+
 }

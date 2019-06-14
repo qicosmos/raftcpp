@@ -34,6 +34,7 @@ namespace raftcpp {
 			bus_.subscribe<msg_handle_response_of_append_entry>(&consensus::handle_response_of_append_entry, this);
 
 			state_ = State::FOLLOWER;
+			LOG_INFO << "consensus::init state_=" << state_to_string[state_];
 			std::thread apply_thread([this] {
 				this->apply_main_loop(); });
 			apply_thread.detach();
@@ -146,7 +147,7 @@ namespace raftcpp {
 				reset_leader_id(args.from);
 				current_term_ = args.term;
 				if (args.leader_commit_index > leader_commit_index_) {
-					leader_commit_index_ = args.leader_commit_index;
+					leader_commit_index_ = std::min(args.leader_commit_index,mem_log_t::get().last_index());
 					state_changed_.notify_all();
 				}
 				hb.term = current_term_;
@@ -158,7 +159,7 @@ namespace raftcpp {
 				step_down_follower(current_term_);
 				reset_leader_id(args.from);
 				if (args.leader_commit_index > leader_commit_index_) {
-					leader_commit_index_ = args.leader_commit_index;
+					leader_commit_index_ = std::min(args.leader_commit_index, mem_log_t::get().last_index());
 					state_changed_.notify_all();
 				}
 				hb.term = current_term_;
@@ -202,6 +203,7 @@ namespace raftcpp {
 				auto pos = std::find_if(args.entries.begin(), args.entries.end(), [conflict_index](const entry_t & e) {return e.index == conflict_index; });
 				std::vector<entry_t> v(pos, args.entries.end());
 				log_.append_may_truncate(v);
+				update_req_log_map(log_.all_entries());
 			}
 			leader_commit_index_ = std::min(args.leader_commit_index, log_.last_index());
 			res.last_log_index = log_.last_index();
@@ -261,6 +263,7 @@ namespace raftcpp {
 			print("become candidate\n");
 			reset_leader_id();
 			state_ = State::CANDIDATE;
+			LOG_INFO << "become candidate, state=" << state_to_string[state_];
 			current_term_++;
 			vote_for_ = host_id_;
 			print("start vote timer\n");
@@ -280,8 +283,8 @@ namespace raftcpp {
 			request_vote_t vote{};
 			uint64_t term = current_term_;
 			vote.term = current_term_;
-			vote.last_log_idx = last_log_idx_;
-			vote.last_log_term = last_log_term_;
+			vote.last_log_idx = log_.last_index();
+			vote.last_log_term = log_.get_term(vote.last_log_idx);
 			vote.from = host_id_;
 
 			bus_.send_msg<msg_broadcast_request_vote>(is_pre_vote, term, counter, vote);
@@ -297,6 +300,7 @@ namespace raftcpp {
 		}
 
 		void step_down_follower(uint64_t term) {
+			LOG_INFO << "node {id=" << host_id_ << "} enter step down follower, with term="<<term;
 			if (state_ == State::CANDIDATE) {
 				print("stop vote timer\n");
 				bus_.send_msg<msg_cancel_vote_timer>();
@@ -311,6 +315,7 @@ namespace raftcpp {
 			}
 			current_term_ = term;
 			state_ = State::FOLLOWER;
+			LOG_INFO << "step down, state_=" << state_to_string[state_];
 			print("start pre_vote timer\n");
 			restart_election_timer(random_election());
 			reset_leader_id();
@@ -365,8 +370,10 @@ namespace raftcpp {
 			}
 
 			print("become leader\n");
+			LOG_INFO << "node {id=" << host_id_ << "} become leader!";
 			bus_.send_msg<msg_cancel_vote_timer>();
 			state_ = State::LEADER;
+			LOG_INFO << "become leader, state_=" << state_to_string[state_];
 			reset_leader_id(host_id_);
 			bus_.send_msg<msg_restart_heartbeat_timer>();
 			//append empty entry
@@ -423,16 +430,23 @@ namespace raftcpp {
 			return ELECTION_TIMEOUT + rand(ELECTION_TIMEOUT);
 		}
 
-		bool replicate(std::string && data) {
+		bool replicate(uint64_t req_id,std::string && data) {
 			std::unique_lock<std::mutex> lock_guard(mtx_);
 			entry_t entry;
+			entry.req_id = req_id;
 			entry.type = entry_type::entry_type_data;
 			entry.term = current_term_;
 			entry.index = log_.last_index() + 1;
 			entry.data = std::move(data);
-			if (state_ != State::LEADER)
+			if (state_ != State::LEADER) {
+				LOG_INFO << "replicate,state =" << state_to_string[state_];
 				return false;
+			}
+				
+			req_log_map_[req_id] = entry.index;
 			log_.append({ &entry });
+			//just for test
+			
 			uint64_t index = log_.last_index();
 			while (current_term_ == entry.term) {
 				state_changed_.wait(lock_guard, [index, this]() {
@@ -440,6 +454,7 @@ namespace raftcpp {
 					});
 				return true;
 			}
+			
 			return true;
 		}
 
@@ -455,8 +470,25 @@ namespace raftcpp {
 			return true;
 		}
 
+		std::unordered_map<uint64_t/*req_id*/, uint64_t /*log index*/>& req_log_map() {
+			return req_log_map_;
+		}
+
+		uint64_t applied_index() {
+			return applied_index_;
+		}
+
+		void update_req_log_map(const std::deque<entry_t>& entries){
+			req_log_map_.clear();
+			for (auto& entry : entries) {
+				req_log_map_[entry.req_id] = entry.index;
+			}
+		}
+		int64_t leader_id() {
+			return leader_id_;
+		}
 	private:
-		State state_;
+		std::atomic<State> state_;
 		int leader_id_ = -1;
 		uint64_t current_term_ = 0;
 		uint64_t last_log_idx_ = 0;
@@ -471,6 +503,7 @@ namespace raftcpp {
 		message_bus& bus_;
 		mem_log_t& log_;
 		//std::mutex mtx_;
+		std::unordered_map<uint64_t/*req_id*/, uint64_t /*log index*/> req_log_map_;
 	};
 }
 
