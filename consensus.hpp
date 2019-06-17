@@ -86,17 +86,18 @@ namespace raftcpp {
 					break;
 				}
 
-				if (vote_for_ == -1|| vote_for_==args.from) {
-					vote_for_ = args.from;
-					vote.vote_granted = true;
-					step_down_follower(args.term);
-				}
-
 				auto last_index = log_.last_index();
 				auto last_term = log_.get_term(last_index);
 				bool log_ok = (args.last_log_term > last_term ||
 					args.last_log_term == last_term &&
 					args.last_log_idx >= last_index);
+
+				if ((vote_for_ == -1|| vote_for_==args.from) && log_ok) {
+					vote_for_ = args.from;
+					vote.vote_granted = true;
+					step_down_follower(args.term);
+				}
+
 				if (!log_ok)
 					vote.vote_granted = false;
 			} while (0);
