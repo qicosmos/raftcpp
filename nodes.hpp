@@ -157,6 +157,8 @@ namespace raftcpp {
 					if (ec) {
 						//timeout 
 						//todo
+						//timeout, set pause = false to resend log
+						pr.pause = false;
 						std::cout << "async call append_entry timeout!" << std::endl;
 						return;
 					}
