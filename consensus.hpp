@@ -82,7 +82,7 @@ namespace raftcpp {
 					step_down_follower(args.term);
 				}
 
-				if (args.term == 0|| vote_for_ != -1) {
+				if (args.term == 0|| (vote_for_ != -1 && vote_for_ != args.from)) {
 					break;
 				}
 
