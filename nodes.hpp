@@ -102,7 +102,7 @@ namespace raftcpp {
 		}
 
 		int add(rpc_conn conn, int a, int b) {
-			//ÏÈ×öÒì³£»Ö¸´´¦Àí TODO
+			//ÃÃˆÃ—Ã¶Ã’Ã¬Â³Â£Â»Ã–Â¸Â´Â´Â¦Ã€Ã­ TODO
 			/*
 			req_id---log_index from map
 			entry = get_log(req_id)
@@ -245,16 +245,20 @@ namespace raftcpp {
 			}
 		}
 
+
 		void broadcast_request_heartbeat(req_heartbeat req) {
-			//LOG_INFO << "broadcast_heartbeat";
+
 			for (auto& peer : peers_) {
 				if (!peer->has_connected())
 					continue;
 				print("send heartbeat\n");
+
 				req.leader_commit_index = cons_.commit_index();
 				req.from = cons_.leader_id();
 				
-				peer->async_call("heartbeat", [this](boost::system::error_code ec, string_view data, uint64_t) {
+
+				peer->async_call("heartbeat", [this](boost::system::error_code ec, string_view data) {
+
 					if (ec) {
 						//timeout 
 						//todo

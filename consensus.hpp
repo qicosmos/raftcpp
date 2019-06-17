@@ -53,7 +53,7 @@ namespace raftcpp {
 				//get one entry to apply
 				auto next_index = applied_index_ + 1;
 				if (next_index < mem_log_t::get().start_index()) {
-					//TODO ´¦Àí¿ìÕÕ
+					//TODO ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 				}
 				else {
 					auto entry = mem_log_t::get().get_entry(next_index);
@@ -146,10 +146,12 @@ namespace raftcpp {
 			if (state_ == State::FOLLOWER) {
 				reset_leader_id(args.from);
 				current_term_ = args.term;
+
 				if (args.leader_commit_index > leader_commit_index_) {
 					leader_commit_index_ = std::min(args.leader_commit_index,mem_log_t::get().last_index());
 					state_changed_.notify_all();
 				}
+
 				hb.term = current_term_;
 				print("start pre_vote timer\n");
 				restart_election_timer(random_election());
@@ -158,10 +160,12 @@ namespace raftcpp {
 			else if (state_ == State::CANDIDATE) {
 				step_down_follower(current_term_);
 				reset_leader_id(args.from);
+
 				if (args.leader_commit_index > leader_commit_index_) {
 					leader_commit_index_ = std::min(args.leader_commit_index, mem_log_t::get().last_index());
 					state_changed_.notify_all();
 				}
+
 				hb.term = current_term_;
 				return hb;
 			}
@@ -283,7 +287,9 @@ namespace raftcpp {
 			request_vote_t vote{};
 			uint64_t term = current_term_;
 			vote.term = current_term_;
+
 			vote.last_log_idx = log_.last_index();
+
 			vote.last_log_term = log_.get_term(vote.last_log_idx);
 			vote.from = host_id_;
 
@@ -387,7 +393,7 @@ namespace raftcpp {
 
 		void start_heartbeat() {
 			std::unique_lock<std::mutex> lock(mtx_);
-			req_append_entry entry{};
+			req_heartbeat entry{};
 			entry.from = host_id_;
 			entry.term = current_term_;
 			entry.leader_commit_index = leader_commit_index_;
@@ -430,6 +436,7 @@ namespace raftcpp {
 		int random_election() {
 			return ELECTION_TIMEOUT + rand(ELECTION_TIMEOUT);
 		}
+
 
 		bool replicate(std::string && data) {
 			std::unique_lock<std::mutex> lock_guard(mtx_);
@@ -486,12 +493,11 @@ namespace raftcpp {
 		int64_t leader_id() {
 			return leader_id_;
 		}
+
 	private:
 		std::atomic<State> state_;
 		int leader_id_ = -1;
 		uint64_t current_term_ = 0;
-		uint64_t last_log_idx_ = 0;
-		uint64_t last_log_term_ = 0;
 		uint64_t leader_commit_index_ = 0;
 		uint64_t applied_index_ = 0;
 		int vote_for_ = -1;
