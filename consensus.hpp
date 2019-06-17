@@ -244,7 +244,7 @@ namespace raftcpp {
 
 			request_vote_t vote{};
 			uint64_t term = current_term_;
-			vote.term = current_term_;
+			vote.term = is_pre_vote ? current_term_ + 1 : current_term_;
 			vote.last_log_idx = log_.last_index(); 
 			vote.last_log_term = log_.get_term(vote.last_log_idx);
 			vote.from = host_id_;
