@@ -153,7 +153,7 @@ namespace raftcpp {
 				if (req.entries.empty())
 					return;
 				pr.pause = true;
-				peer->async_call<100000>("append_entry", [this, &pr, &peer, &addr](boost::system::error_code ec, string_view data, uint64_t) {
+				peer->async_call<100000>("append_entry", [this, &pr, &peer, &addr](boost::system::error_code ec, string_view data) {
 					if (ec) {
 						//timeout 
 						//todo
@@ -232,7 +232,7 @@ namespace raftcpp {
 				vote.last_log_term = mem_log_t::get().get_term(vote.last_log_idx);
 				vote.term = cons_.current_term();
 				*/
-				peer->async_call(rpc_name, [this, term, counter, is_pre_vote](boost::system::error_code ec, string_view data, uint64_t) {
+				peer->async_call(rpc_name, [this, term, counter, is_pre_vote](boost::system::error_code ec, string_view data) {
 					if (ec) {
 						//timeout
 						//todo

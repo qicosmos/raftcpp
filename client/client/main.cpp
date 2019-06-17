@@ -82,7 +82,7 @@ step:
 	peer->update_addr(conf.peers_addr[index].ip, conf.peers_addr[index].port);
 	bool r = peer->connect(3);
 	if (!r) {
-		std::cout << "connect failed. port =" << peer->port() << std::endl;
+		//std::cout << "connect failed. port =" << peer->port() << std::endl;
 		return 0;
 	}
 	//leader is not right, select leader
@@ -94,26 +94,26 @@ step:
 		}
 		leader_id = result.leader_id;
 		if (!reconnect_leader(peer, leader_id)){
-			std::cout << "connect failed,port=" <<peer->port()<< std::endl;
+		//	std::cout << "connect failed,port=" <<peer->port()<< std::endl;
 			return -1;
 		}
 	}
 	else {
 		leader_id = result.leader_id;
 		if (!peer->connect(3)) {
-			std::cout << "connect fail,port=" << peer->port()<< std::endl;
+	//		std::cout << "connect fail,port=" << peer->port()<< std::endl;
 			return 0;
 		}
 	}
 	
-	std::cout << "leader id = " << leader_id << ", server port=" << peer->port()<<'\n';
+//	std::cout << "leader id = " << leader_id << ", server port=" << peer->port()<<'\n';
 	
 	while (peer->has_connected())
 	{
 		//send request
 		if (g_req_body_map.empty()) {
 			
-			auto ret = peer->async_call<10000>("add", [peer](auto ec, auto data, auto req_id) {
+			peer->async_call<10000>("add", [peer](auto ec, auto data) {
 				if (ec) {
 					std::cout << "add error" << std::endl;
 					return;
@@ -122,20 +122,11 @@ step:
 				g_req_body_map.clear();
 				std::cout << "result = " << result << std::endl;
 				}, 1, 1);
-			g_req_body_map.insert({ ret.first,ret.second });
+			
 		}
 		else {
-			auto req_id = (g_req_body_map.begin())->first;
-			auto body = (g_req_body_map.begin())->second;
-			peer->re_call<10000>(req_id, "add", [peer](auto ec, auto data, auto req_id) {
-				if (ec) {
-					std::cout << "add error" << std::endl;
-					return;
-				}
-				auto result = as<int>(data);
-				std::cout << "result = " << result << std::endl;
-				g_req_body_map.clear();
-				}, body);
+		
+			
 		}
 		std::this_thread::sleep_for(std::chrono::seconds(2));
 	}
