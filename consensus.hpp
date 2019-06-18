@@ -106,6 +106,13 @@ namespace raftcpp {
 			return vote;
 		}
 
+		void receive_heartbeat_handler(req_heartbeat& args, res_heartbeat& res) {
+			step_down_follower(current_term_);
+			reset_leader_id(args.from);
+			leader_commit_index_ = std::min(args.leader_commit_index, mem_log_t::get().last_index());
+			res.term = current_term_;
+		}
+
 		res_heartbeat heartbeat(req_heartbeat args) {
 			std::unique_lock<std::mutex> lock(mtx_);
 			print("recieved heartbeat\n");
@@ -115,27 +122,16 @@ namespace raftcpp {
 			}
 
 			if (state_ == State::FOLLOWER) {
-				reset_leader_id(args.from);
-				current_term_ = args.term;
-				leader_commit_index_ = std::min(args.leader_commit_index, mem_log_t::get().last_index());
-				hb.term = current_term_;
-				print("start pre_vote timer\n");
-				restart_election_timer(random_election());
+				receive_heartbeat_handler(args, hb);
 				return hb;
 			}
 			else if (state_ == State::CANDIDATE) {
-				step_down_follower(current_term_);
-				reset_leader_id(args.from);
-				leader_commit_index_ = std::min(args.leader_commit_index, mem_log_t::get().last_index());
-				hb.term = current_term_;
+				receive_heartbeat_handler(args, hb);
 				return hb;
 			}
 			else if (state_ == State::LEADER) {
 				if (args.term > current_term_) {
-					step_down_follower(current_term_);
-					reset_leader_id(args.from);
-					leader_commit_index_ = std::min(args.leader_commit_index, mem_log_t::get().last_index());
-					hb.term = current_term_;
+					receive_heartbeat_handler(args, hb);
 					return hb;
 				}
 			}
@@ -283,8 +279,9 @@ namespace raftcpp {
 			print("become follower\n");
 			if (term > current_term_) {
 				vote_for_ = -1;
+				current_term_ = term;
 			}
-			current_term_ = term;
+			
 			state_ = State::FOLLOWER;
 			print("start pre_vote timer\n");
 			restart_election_timer(random_election());
