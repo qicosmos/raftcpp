@@ -112,14 +112,8 @@ namespace raftcpp {
 					step_down_follower(args.term);
 				}
 
-				if (args.term == 0 || vote_for_ != -1) {
+				if (args.term == 0|| (vote_for_ != -1 && vote_for_ != args.from)) {
 					break;
-				}
-
-				if (vote_for_ == -1 || vote_for_ == args.from) {
-					vote_for_ = args.from;
-					vote.vote_granted = true;
-					step_down_follower(args.term);
 				}
 
 				auto last_index = log_.last_index();
@@ -127,12 +121,26 @@ namespace raftcpp {
 				bool log_ok = (args.last_log_term > last_term ||
 					args.last_log_term == last_term &&
 					args.last_log_idx >= last_index);
+
+				if ((vote_for_ == -1|| vote_for_==args.from) && log_ok) {
+					vote_for_ = args.from;
+					vote.vote_granted = true;
+					step_down_follower(args.term);
+				}
+
 				if (!log_ok)
 					vote.vote_granted = false;
 			} while (0);
 
 			vote.term = current_term_;
 			return vote;
+		}
+
+		void receive_heartbeat_handler(req_heartbeat& args, res_heartbeat& res) {
+			step_down_follower(current_term_);
+			reset_leader_id(args.from);
+			leader_commit_index_ = std::min(args.leader_commit_index, mem_log_t::get().last_index());
+			res.term = current_term_;
 		}
 
 		res_heartbeat heartbeat(req_heartbeat args) {
@@ -144,32 +152,20 @@ namespace raftcpp {
 			}
 
 			if (state_ == State::FOLLOWER) {
-				reset_leader_id(args.from);
-				current_term_ = args.term;
-
-				if (args.leader_commit_index > leader_commit_index_) {
-					leader_commit_index_ = std::min(args.leader_commit_index,mem_log_t::get().last_index());
-					state_changed_.notify_all();
-				}
-
-				hb.term = current_term_;
-				print("start pre_vote timer\n");
-				restart_election_timer(random_election());
+				receive_heartbeat_handler(args, hb);
 				return hb;
 			}
 			else if (state_ == State::CANDIDATE) {
-				step_down_follower(current_term_);
-				reset_leader_id(args.from);
-
-				if (args.leader_commit_index > leader_commit_index_) {
-					leader_commit_index_ = std::min(args.leader_commit_index, mem_log_t::get().last_index());
-					state_changed_.notify_all();
-				}
-
-				hb.term = current_term_;
+				receive_heartbeat_handler(args, hb);
 				return hb;
 			}
-
+			else if (state_ == State::LEADER) {
+				if (args.term > current_term_) {
+					receive_heartbeat_handler(args, hb);
+					return hb;
+				}
+			}
+			
 			return hb;
 		}
 
@@ -286,10 +282,8 @@ namespace raftcpp {
 
 			request_vote_t vote{};
 			uint64_t term = current_term_;
-			vote.term = current_term_;
-
-			vote.last_log_idx = log_.last_index();
-
+			vote.term = is_pre_vote ? current_term_ + 1 : current_term_;
+			vote.last_log_idx = log_.last_index(); 
 			vote.last_log_term = log_.get_term(vote.last_log_idx);
 			vote.from = host_id_;
 
@@ -318,8 +312,9 @@ namespace raftcpp {
 			print("become follower\n");
 			if (term > current_term_) {
 				vote_for_ = -1;
+				current_term_ = term;
 			}
-			current_term_ = term;
+			
 			state_ = State::FOLLOWER;
 			LOG_INFO << "step down, state_=" << state_to_string[state_];
 			print("start pre_vote timer\n");

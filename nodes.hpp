@@ -59,7 +59,7 @@ namespace raftcpp {
 						bool result = state_changed_.wait_for(lock_guard,std::chrono::seconds(1), [this, &addr, peer] {
 							return peer->has_connected() && cons_.state() == State::LEADER && addr.progress.match < mem_log_t::get().last_index();
 							});
-
+							
 						if(result)
 							send_entries(peer, addr);
 					}
@@ -134,7 +134,6 @@ namespace raftcpp {
 			//response
 		}
 
-
 		void send_entries(std::shared_ptr<rpc_client> peer, address& addr) {
 			//todo progress
 			auto& log = mem_log_t::get();
@@ -157,7 +156,6 @@ namespace raftcpp {
 					if (ec) {
 						//timeout 
 						//todo
-						//timeout, set pause = false to resend log
 						pr.pause = false;
 						std::cout << "async call append_entry timeout!" << std::endl;
 						return;
@@ -177,7 +175,6 @@ namespace raftcpp {
 							}
 							pr.pause = false;
 							send_entries(peer, addr);
-							//TODO send entry again
 						}
 						else {
 							if (res_append.last_log_index > pr.match) {
