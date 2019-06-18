@@ -130,6 +130,15 @@ namespace raftcpp {
 				hb.term = current_term_;
 				return hb;
 			}
+			else if (state_ == State::LEADER) {
+				if (args.term > current_term_) {
+					step_down_follower(current_term_);
+					reset_leader_id(args.from);
+					leader_commit_index_ = std::min(args.leader_commit_index, mem_log_t::get().last_index());
+					hb.term = current_term_;
+					return hb;
+				}
+			}
 			
 			return hb;
 		}
