@@ -46,9 +46,9 @@ namespace raftcpp {
 
 				peers_.push_back(peer);
 
-				std::thread thd([this, &addr, &peer] {
+				std::thread thd([this, &addr, peer] {
 					std::unique_lock<std::mutex> lock_guard(mtx_);
-					state_changed_.wait(lock_guard, [this, &addr, &peer] {
+					state_changed_.wait(lock_guard, [this, &addr, peer] {
 						return peer->has_connected()&& cons_.state() ==State::LEADER&&addr.progress.match<mem_log_t::get().last_index();
 					});
 
@@ -94,7 +94,7 @@ namespace raftcpp {
 			//response
 		}
 
-		void send_entries(std::shared_ptr<rpc_client>& peer, address& addr) {
+		void send_entries(std::shared_ptr<rpc_client> peer, address& addr) {
 			//todo progress
 			auto& log = mem_log_t::get();
 			auto& pr = addr.progress;
@@ -116,6 +116,7 @@ namespace raftcpp {
 					if (ec) {
 						//timeout 
 						//todo
+						pr.pause = false;
 						std::cout << "async call append_entry timeout!" << std::endl;
 						return;
 					}
