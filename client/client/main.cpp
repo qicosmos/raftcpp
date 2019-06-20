@@ -121,7 +121,7 @@ do { index = rd() % conf.peers_addr.size(); } while (dead_nodes.find(index)!=dea
 	
 
 
-			peer->async_call("add", [peer](auto ec, auto data) {
+			peer->async_call("add_one", [](auto ec, auto data) {
 				try
 				{
 				if (ec) {
@@ -140,7 +140,7 @@ do { index = rd() % conf.peers_addr.size(); } while (dead_nodes.find(index)!=dea
 				}, 1, 1);
 		
 	
-		std::this_thread::sleep_for(std::chrono::seconds(2));
+		//std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
 	dead_nodes.insert(leader_id);
 	//peer->close();

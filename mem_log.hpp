@@ -1,4 +1,4 @@
-#pragma once
+  #pragma once
 #include "entity.h"
 #include "NanoLog.hpp"
 #include "cond.h"

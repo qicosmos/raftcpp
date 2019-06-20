@@ -11,9 +11,11 @@ using namespace rpc_service;
 #include "NanoLog.hpp"
 #include "third/thread_pool/mpmc_bounded_queue.hpp"
 #include "third/thread_pool/thread_pool.hpp"
+#include "third/qps.h"
 #include <deque>
 
 namespace raftcpp {
+	qps g_qps;
 	class nodes_t {
 	public:
 		nodes_t(const address& host, std::vector<address> peers, consensus& cons, size_t thrd_num = 1) :
@@ -24,6 +26,7 @@ namespace raftcpp {
 			current_peer_.register_handler("pre_request_vote", &nodes_t::pre_request_vote, this);
 			current_peer_.register_handler("heartbeat", &nodes_t::heartbeat, this);
 			current_peer_.register_handler<Async>("add", &nodes_t::add, this);
+			current_peer_.register_handler("add_one", &nodes_t::add_one, this);
 			current_peer_.register_handler("ask_leader", &nodes_t::ask_leader, this);
 			current_peer_.async_run();
 
@@ -43,7 +46,10 @@ namespace raftcpp {
 			
 		}
 
-
+		int add_one(rpc_conn conn, int a, int b) {
+			g_qps.increase();
+			return 1;
+		}
 
 		int connect_peers(size_t timeout = 10) {
 			int connected_num = 0;
@@ -118,6 +124,7 @@ namespace raftcpp {
 		}
 
 		void add(rpc_conn conn, int a, int b) {
+			/*
 			auto begin_time = std::chrono::high_resolution_clock::now();
 			thread_pool_->post([conn,this, begin_time] {
 				int result = 0;
@@ -125,6 +132,7 @@ namespace raftcpp {
 				auto req_id = conn_sp->request_id();
 				const std::vector<char>& body = conn_sp->body();
 				std::string data = std::string(body.begin(), body.end());
+				
 				if (!cons_.replicate(std::move(data))) {					
 					result = -1;
 				}
@@ -133,13 +141,16 @@ namespace raftcpp {
 				}
 
 				cons_.wait_apply();
+				
 				auto end_time = std::chrono::high_resolution_clock::now();
-				auto interval = std::chrono::duration_cast<std::chrono::milliseconds>(begin_time - end_time);
-				LOG_WARN << "deal request {id=" << req_id << "} consume time: " << interval.count() << " ms";
+				auto interval = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - begin_time);
+				LOG_INFO << "deal request {id=" << req_id << "} consume time: " << interval.count() << " ms";
 				if (conn_sp) {
+					g_qps.increase();
 					conn_sp->pack_and_response(req_id, result);
 				}
-				});			
+				});	
+				*/
 
 		}
 
@@ -151,7 +162,7 @@ namespace raftcpp {
 			auto& pr = addr.progress;
 			if (!pr.pause && pr.match < log.last_index()) {
 				LOG_INFO << "node {id=" << host_addr_.host_id << "} start send entries to node{id=" << addr.host_id << "}";
-				std::cout << "should start append entries to (" << addr.host_id << "," << addr.ip << "," << addr.port << ")" << "\n";
+				//std::cout << "should start append entries to (" << addr.host_id << "," << addr.ip << "," << addr.port << ")" << "\n";
 				req_append_entry req;
 				auto term = cons_.current_term();
 				req.term = cons_.current_term();// current_term();

@@ -87,8 +87,8 @@ namespace raftcpp {
 	constexpr MessageKey msg_active_num = MessageKey::active_num;
 
 	std::mutex g_print_mtx;
-	void print(std::string str) {
-		std::unique_lock<std::mutex> lock(g_print_mtx);
-		std::cout << str;
+	void print(const std::string& str) {
+		//std::unique_lock<std::mutex> lock(g_print_mtx);
+		//std::cout << str <<"\n";
 	}
 }

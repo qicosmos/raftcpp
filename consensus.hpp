@@ -69,7 +69,7 @@ namespace raftcpp {
 		}
 		/********** rpc service start *********/
 		response_vote pre_request_vote(request_vote_t args) {
-			std::unique_lock<std::mutex> lock(mtx_);
+			 std::unique_lock<std::mutex> lock(mtx_);
 			response_vote vote = {};
 			vote.term = current_term_;
 
@@ -172,7 +172,7 @@ namespace raftcpp {
 
 		res_append_entry append_entry(req_append_entry args) {
 			std::unique_lock<std::mutex> lock(mtx_);
-			std::cout << "enter append_entry" << std::endl;
+			
 			LOG_INFO << "node {id =" << host_id_ << "} handle append entry request from node { id=" << args.from << "}";			
 			res_append_entry res;
 			res.term = current_term_;

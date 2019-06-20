@@ -99,7 +99,7 @@ int main() {
 	timer_t timer;
 	consensus cons(host.host_id, (int)peers.size());
 
-	nodes_t nodes(host, peers, cons, 1);
+	nodes_t nodes(host, peers, cons, 4);
 
 
 		int connected_num = nodes.connect_peers(1);
