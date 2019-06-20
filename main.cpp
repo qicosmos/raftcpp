@@ -22,7 +22,7 @@ struct person {
 void init_nano_log(int num) {
 	std::string file_name = "node_" + std::to_string(num) + ".txt";
 	nanolog::Logger::initialize(nanolog::GuaranteedLogger(), ".", file_name, 1);
-	nanolog::Logger::set_log_level(nanolog::LogLevel::INFO);
+	nanolog::Logger::set_log_level(nanolog::LogLevel::WARN);
 }
 
 template<typename T>
@@ -69,7 +69,7 @@ void test_msg_bus() {
 int main() {
 	
 	//test_msg_bus();
-	config conf{ {{"127.0.0.1", 9000, 0}, {"127.0.0.1", 9001, 1}, {"127.0.0.1", 9002, 2}, {"127.0.0.1", 9003, 3}, {"127.0.0.1", 9004, 4}} };
+	config conf{ {{"127.0.0.1", 9000, 0}, {"127.0.0.1", 9001, 1}, {"127.0.0.1", 9002, 2}} };
 	address host{};
 	std::vector<address> peers;
 
@@ -101,16 +101,10 @@ int main() {
 
 	nodes_t nodes(host, peers, cons, 1);
 
-	while (true) {
-		int connected_num = nodes.connect_peers(1);
-		if (connected_num < (peers.size() + 1) / 2) {
-			std::cout << "not enough peers" << std::endl;
-		}
-		else {
-			break;
-		}
-	}
 
+		int connected_num = nodes.connect_peers(1);
+
+	
 	//node.init();
 	//node.run();
 

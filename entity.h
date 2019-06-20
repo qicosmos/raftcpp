@@ -15,6 +15,7 @@ namespace raftcpp {
 		{State::LEADER,"Leader"},
 	};
 
+
 	struct entry_t {
 		/** the entry's term at the point it was created */
 		uint64_t term = 0;
@@ -30,6 +31,25 @@ namespace raftcpp {
 		uint64_t req_id = 0;
 		MSGPACK_DEFINE(term, index, type, data,req_id)
 	};
+
+	typedef std::function<void()> task_callback_t;
+	struct task_t {
+		entry_t entry;
+		task_callback_t callback;
+		uint64_t expect_term = 0;
+	};
+
+	template<typename T>
+	std::string to_string(const T& t) {
+		return "";
+	};
+
+	template<>
+	std::string to_string<entry_t>(const entry_t& entry) {
+		std::stringstream ss;
+		ss << "{ term=" << entry.term << ", index =" << entry.index << ", type=" << entry.type << "}";
+		return ss.str();
+	}
 
 	struct request_vote_t {
 		/** currentTerm, to force other leader/candidate to step down */

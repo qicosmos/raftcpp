@@ -11,7 +11,7 @@ using namespace raftcpp;
 
 std::unordered_map<uint64_t, std::string> g_req_body_map;
 
-config conf{ {{"127.0.0.1", 9000, 0}, {"127.0.0.1", 9001, 1}, {"127.0.0.1", 9002, 2}, {"127.0.0.1", 9003, 3}, {"127.0.0.1", 9004, 4}} };
+config conf{ {{"127.0.0.1", 9000, 0}, {"127.0.0.1", 9001, 1}, {"127.0.0.1", 9002, 2}} };
 
 std::set<int64_t> dead_nodes;
 int64_t leader_id = -1;
@@ -64,28 +64,34 @@ bool reconnect_leader(std::shared_ptr<rpc_client> peer,uint64_t leader_id) {
 
 int main(int argc, char** argv) {
 	
-	auto peer = std::make_shared<rpc_client>("127.0.0.1", 9000);
+	uint16_t port = 0;
+	std::cout << "input the port: " << '\n';
+	std::cin >> port;
+	auto peer = std::make_shared<rpc_client>("127.0.0.1", port);
 	std::thread th([peer] {
 		peer->run();
 		});
 	th.detach();
 
-	std::random_device rd;
-	auto index = leader_id;
+//	std::random_device rd;
+//	auto index = leader_id;
+/*
 step:	
-	do { index = rd() % conf.peers_addr.size(); } while (dead_nodes.find(index)!=dead_nodes.end());
+do { index = rd() % conf.peers_addr.size(); } while (dead_nodes.find(index)!=dead_nodes.end());
 	if (!(index >= 0 && index <= conf.peers_addr.size() - 1)) {
 		std::cout << "no leader in current cluster." << std::endl;
 		return -1;
 	}
 	peer->close();
 	peer->update_addr(conf.peers_addr[index].ip, conf.peers_addr[index].port);
+	*/
 	bool r = peer->connect(3);
 	if (!r) {
-		//std::cout << "connect failed. port =" << peer->port() << std::endl;
+		std::cout << "connect failed. port =" << peer->port() << std::endl;
 		return 0;
 	}
 	//leader is not right, select leader
+	/*
 	auto result = peer->call<res_ask_leader>("ask_leader");
 	if (!result.is_leader) {
 		if (!(result.leader_id >= 0 && result.leader_id <= conf.peers_addr.size() - 1)) {
@@ -94,46 +100,52 @@ step:
 		}
 		leader_id = result.leader_id;
 		if (!reconnect_leader(peer, leader_id)){
-		//	std::cout << "connect failed,port=" <<peer->port()<< std::endl;
+			std::cout << "connect failed,port=" <<peer->port()<< std::endl;
 			return -1;
 		}
 	}
 	else {
 		leader_id = result.leader_id;
 		if (!peer->connect(3)) {
-	//		std::cout << "connect fail,port=" << peer->port()<< std::endl;
+			std::cout << "connect fail,port=" << peer->port()<< std::endl;
 			return 0;
 		}
 	}
+	*/
 	
 //	std::cout << "leader id = " << leader_id << ", server port=" << peer->port()<<'\n';
 	
 	while (peer->has_connected())
 	{
-		//send request
-		if (g_req_body_map.empty()) {
-			
-			peer->async_call<10000>("add", [peer](auto ec, auto data) {
+		//send request	
+	
+
+
+			peer->async_call("add", [peer](auto ec, auto data) {
+				try
+				{
 				if (ec) {
 					std::cout << "add error" << std::endl;
 					return;
 				}
 				auto result = as<int>(data);
-				g_req_body_map.clear();
+				if (result == -1) {
+
+				}
 				std::cout << "result = " << result << std::endl;
+				}
+				catch (std::exception& ec) {
+					std::cout << "exception: " << ec.what() << std::endl;
+				}
 				}, 1, 1);
-			
-		}
-		else {
 		
-			
-		}
+	
 		std::this_thread::sleep_for(std::chrono::seconds(2));
 	}
 	dead_nodes.insert(leader_id);
-	peer->close();
+	//peer->close();
 	std::this_thread::sleep_for(std::chrono::seconds(1));
-	goto step;
+//	goto step;
 
 	return 0;
 }

@@ -31,6 +31,9 @@ namespace raftcpp {
 	static const int RPC_TIMEOUT = 500;
 	static const int HEARTBEAT_PERIOD = ELECTION_TIMEOUT / 2;//milliseconds
 
+
+	static const int TASK_QUEUE_SIZE = 200;
+
 	enum class MessageKey {
 		restart_election_timer,
 		election_timeout,
