@@ -54,12 +54,11 @@ namespace raftcpp {
 
 		template <typename T, typename ... Args>
 		void call_impl(T it, void* ptr, Args&& ... args) {
-			auto args_tuple = std::make_tuple(std::forward<Args>(args)...);
-			using Tuple = decltype(args_tuple);
+			using Tuple = decltype(std::make_tuple(std::forward<Args>(args)...));
 			using storage_type = typename std::aligned_storage<sizeof(Tuple), alignof(Tuple)>::type;
 			storage_type data;
 			Tuple* tp = new (&data) Tuple;
-			*tp = args_tuple;
+			*tp = std::forward_as_tuple(std::forward<Args>(args)...);
 
 			it->second(tp, ptr);
 		}
