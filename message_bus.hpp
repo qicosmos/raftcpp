@@ -7,6 +7,8 @@
 
 namespace raftcpp {
 	enum class MessageKey;
+	template<typename T>
+	constexpr auto non_const_lvalue_reference_v = !std::is_const_v<std::remove_reference_t<T>> && std::is_lvalue_reference_v<T>;
 
 	class message_bus {
 	public:
@@ -17,12 +19,16 @@ namespace raftcpp {
 
 		template<MessageKey key, typename Function, typename = std::enable_if_t<!std::is_member_function_pointer<Function>::value>>
 		void subscribe(const Function & f) {
+			using Tuple = typename function_traits<Function>::tuple_type;
+			static_assert(!has_non_const_reference<Tuple>::value, "don't support non const lvalue reference!");
 			check_duplicate<key>();
 			invokers_[key] = { std::bind(&invoker<Function>::apply, f, std::placeholders::_1, std::placeholders::_2) };
 		}
 
 		template <MessageKey key, typename Function, typename Self, typename = std::enable_if_t<std::is_member_function_pointer<Function>::value>>
 		void subscribe(const Function & f, Self * t) {
+			using Tuple = typename function_traits<Function>::tuple_type;
+			static_assert(!has_non_const_reference<Tuple>::value, "don't support non const lvalue reference!");
 			check_duplicate<key>();
 			invokers_[key] = { std::bind(&invoker<Function>::template apply_mem<Self>, f, t, std::placeholders::_1, std::placeholders::_2) };
 		}
@@ -51,6 +57,16 @@ namespace raftcpp {
 		message_bus() {};
 		message_bus(const message_bus&) = delete;
 		message_bus(message_bus&&) = delete;
+
+		template<typename T>
+		struct non_const_lvalue_reference_t : public std::integral_constant<bool, non_const_lvalue_reference_v<T>> {
+		};
+
+		template <typename Tuple>
+		struct has_non_const_reference;
+
+		template <typename... Us>
+		struct has_non_const_reference<std::tuple<Us...>> : std::disjunction<non_const_lvalue_reference_t<Us>...> {};
 
 		template <typename T, typename ... Args>
 		void call_impl(T it, void* ptr, Args&& ... args) {

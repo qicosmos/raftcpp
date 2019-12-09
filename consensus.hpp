@@ -288,7 +288,7 @@ namespace raftcpp {
 			reset_leader_id();
 		}
 
-		void handle_response_of_request_vote(response_vote& resp_vote, uint64_t term, std::shared_ptr<int> counter, bool is_pre_vote) {
+		void handle_response_of_request_vote(const response_vote& resp_vote, uint64_t term, std::shared_ptr<int> counter, bool is_pre_vote) {
 			std::unique_lock<std::mutex> lock(mtx_);
 			if (state_ != (is_pre_vote ? State::FOLLOWER : State::CANDIDATE)) {
 				return;
